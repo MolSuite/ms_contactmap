@@ -15,7 +15,11 @@ pip install git+https://github.com/MolSuite/ms_contactmap
 
 ```bash
 ms_contactmap --help
+ms_contactmap complex.pdb --ligand LIG --smiles "CCO" --json contacts.json
 ```
+
+Reference structures and ligand catalogs in `data/` are development and test
+fixtures; the installed package does not depend on them.
 
 ## License
 

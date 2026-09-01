@@ -1,36 +1,14 @@
 """Command line entry point.
 
-    python -m ms_contactmap data/4ps5.pdb --ligand 2TA --json out.json
+    python -m ms_contactmap data/4ps5.pdb --ligand 2TA --smiles "..." --json out.json
     python -m ms_contactmap --from-json out.json --png out.png
     python -m ms_contactmap --from-json out.json --show
-
-With no ``--smiles`` the code is looked up in ``data/ligands.json``.
 """
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
-
-DEFAULT_LIGANDS = Path(__file__).resolve().parent.parent / "data" / "ligands.json"
-
-
-def resolve_smiles(code: str, explicit: str | None, catalog_path: Path) -> str:
-    if explicit:
-        return explicit
-    if not catalog_path.exists():
-        raise SystemExit(
-            f"no --smiles given and no catalog at {catalog_path}; "
-            f"pass --smiles for ligand {code}"
-        )
-    catalog = json.loads(catalog_path.read_text())
-    entry = catalog.get(code) or catalog.get(code.upper())
-    if not entry:
-        raise SystemExit(
-            f"ligand {code} is not in {catalog_path}; pass --smiles explicitly"
-        )
-    return entry["smiles"] if isinstance(entry, dict) else entry
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -41,8 +19,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--ligand", help="ligand residue name, e.g. 2TA")
     parser.add_argument("--chain", default=None, help="restrict to this chain")
     parser.add_argument("--resnum", type=int, default=None, help="restrict to this residue number")
-    parser.add_argument("--smiles", default=None, help="ligand SMILES (else from --ligands)")
-    parser.add_argument("--ligands", type=Path, default=DEFAULT_LIGANDS, help="SMILES catalog")
+    parser.add_argument("--smiles", default=None, help="ligand SMILES (required with a PDB input)")
     parser.add_argument("--no-exposure", action="store_true",
                         help="skip SASA halos for a faster first analysis")
     parser.add_argument("--json", dest="json_output", type=Path, default=None,
@@ -62,6 +39,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("pass a PDB input or --from-json")
     if not args.from_json and not args.ligand:
         parser.error("--ligand is required with a PDB input")
+    if not args.from_json and not args.smiles:
+        parser.error("--smiles is required with a PDB input")
 
     from .export import ensure_app
     app = ensure_app()
@@ -73,11 +52,10 @@ def main(argv: list[str] | None = None) -> int:
     else:
         from .interactions import build_diagram
 
-        smiles = resolve_smiles(args.ligand, args.smiles, args.ligands)
         diagram = build_diagram(
             args.pdb,
             args.ligand,
-            smiles,
+            args.smiles,
             chain=args.chain,
             resnum=args.resnum,
             name=args.pdb.stem,
