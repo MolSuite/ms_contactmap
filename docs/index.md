@@ -8,7 +8,7 @@ same result can be used in a batch process or an interactive application.
 ## Install
 
 ```bash
-pip install "ms_contactmap @ git+https://github.com/MolSuite/ms_contactmap"
+pip install ms_contactmap
 ```
 
 The package requires Python 3.12, RDKit, Biopython, SciPy, NumPy, and PySide6.

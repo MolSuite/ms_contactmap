@@ -8,7 +8,7 @@ Part of the [MolSuite](https://molsuite.github.io/) stack.
 ## Install
 
 ```bash
-pip install git+https://github.com/MolSuite/ms_contactmap
+pip install ms_contactmap
 ```
 
 ## Usage
