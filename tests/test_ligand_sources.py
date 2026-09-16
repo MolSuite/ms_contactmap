@@ -8,8 +8,9 @@ import pytest
 from rdkit import Chem
 from rdkit.Geometry import Point3D
 
-from ms_contactmap import build_diagram
+from ms_contactmap import build_diagram, build_pose_diagram
 from ms_contactmap.chem import load_ligand
+from ms_contactmap.interactions import _receptor_records
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -95,13 +96,38 @@ def test_ligand_file_gives_the_smiles_result(tmp_path):
     # The SDF carries hydrogens; they become the donor hydrogens.
     assert by_file.donor_hydrogens
 
-    def contacts(diagram):
-        return sorted((i.kind, i.residue_key) for i in diagram.interactions)
-
     common = dict(chain="A", resnum=1876, compute_exposure=False)
-    assert contacts(build_diagram(JXM["pdb_path"], "JXM", ligand=sdf, **common)) == contacts(
+    assert _contacts(build_diagram(JXM["pdb_path"], "JXM", ligand=sdf, **common)) == _contacts(
         build_diagram(JXM["pdb_path"], "JXM", LIGANDS["JXM"]["smiles"], **common)
     )
+
+
+def _contacts(diagram):
+    return sorted((i.kind, i.residue_key) for i in diagram.interactions)
+
+
+def test_pose_diagram_matches_the_complex(tmp_path):
+    lines = (ROOT / "data" / "4uwh.pdb").read_text().splitlines()
+    receptor = tmp_path / "receptor.pdb"
+    receptor.write_text("\n".join(l for l in lines if l[17:20] != "JXM") + "\n")
+    common = dict(compute_exposure=False)
+    by_pose = build_pose_diagram(receptor, _pose_sdf(tmp_path), **common)
+    by_complex = build_diagram(JXM["pdb_path"], "JXM", LIGANDS["JXM"]["smiles"], chain="A", resnum=1876, **common)
+    assert _contacts(by_pose) and _contacts(by_pose) == _contacts(by_complex)
+
+
+def test_pdbqt_receptor_gets_element_symbols(tmp_path):
+    pdbqt = tmp_path / "receptor.pdbqt"
+    pdbqt.write_text(
+        "MODEL 1\n"
+        "ATOM      7  N   ASP A 285      -3.256  -3.631  -1.685  1.00  0.00    -0.273 NA\n"
+        "ATOM      8  HD1 ASP A 285      -3.100  -3.100  -1.100  1.00  0.00     0.100 HD\n"
+        "ATOM      9 CL1  LIG A 285      -4.000  -4.000  -2.000  1.00  0.00     0.000 Cl\n"
+        "ENDMDL\nMODEL 2\n"
+        "ATOM      7  N   ASP A 285      -3.256  -3.631  -1.685  1.00  0.00    -0.273 NA\n"
+    )
+    # NA is an acceptor nitrogen, not sodium; Cl keeps both letters; only the first model.
+    assert [line[76:78] for line in _receptor_records(pdbqt)] == [" N", " H", "Cl"]
 
 
 def test_ligand_from_another_pose_is_rejected(tmp_path):
@@ -109,9 +135,9 @@ def test_ligand_from_another_pose_is_rejected(tmp_path):
         load_ligand(ligand=_pose_sdf(tmp_path, shift=1.0), **JXM)
 
 
-def test_exactly_one_chemistry_source():
-    with pytest.raises(ValueError, match="exactly one"):
-        load_ligand(JXM["pdb_path"], "JXM")
+def test_smiles_and_ligand_are_exclusive(tmp_path):
+    with pytest.raises(ValueError, match="not both"):
+        load_ligand(ligand=_pose_sdf(tmp_path), smiles=LIGANDS["JXM"]["smiles"], **JXM)
 
 
 def test_smiles_path_drops_proximity_bonds_the_template_lacks(tmp_path):
@@ -121,3 +147,36 @@ def test_smiles_path_drops_proximity_bonds_the_template_lacks(tmp_path):
     sulfur = next(a for a in geom.mol.GetAtoms() if a.GetSymbol() == "S")
     assert sorted(n.GetSymbol() for n in sulfur.GetNeighbors()) == ["O", "O", "O", "O"]
     assert geom.mol.GetNumBonds() == Chem.MolFromSmiles(ADX_SMILES).GetNumBonds()
+
+
+def test_without_chemistry_the_legend_warns():
+    from ms_contactmap.export import ensure_app
+    from ms_contactmap.render import LEGEND_BOND_ORDER_WARNING, Legend
+
+    ensure_app()
+    common = dict(chain="A", resnum=1876, compute_exposure=False)
+    guessed = build_diagram(JXM["pdb_path"], "JXM", **common)
+    known = build_diagram(JXM["pdb_path"], "JXM", LIGANDS["JXM"]["smiles"], **common)
+    assert guessed.metadata["bond_orders_known"] is False
+    assert known.metadata["bond_orders_known"] is True
+    assert guessed.mol.GetNumAtoms() == known.mol.GetNumAtoms()
+
+    def labels(diagram):
+        return [label for column in Legend(diagram)._columns for *_, label in column]
+
+    assert LEGEND_BOND_ORDER_WARNING in labels(guessed)
+    assert LEGEND_BOND_ORDER_WARNING not in labels(known)
+
+
+def test_pdb_pose_takes_bond_orders_from_smiles(tmp_path):
+    lines = (ROOT / "data" / "4uwh.pdb").read_text().splitlines()
+    receptor = tmp_path / "receptor.pdb"
+    receptor.write_text("\n".join(l for l in lines if l[17:20] != "JXM") + "\n")
+    pose = tmp_path / "pose.pdb"
+    pose.write_text("\n".join(l for l in lines if l[17:20] == "JXM" and l[21] == "A") + "\nEND\n")
+    common = dict(compute_exposure=False)
+    with_smiles = build_pose_diagram(receptor, pose, smiles=LIGANDS["JXM"]["smiles"], **common)
+    from_sdf = build_pose_diagram(receptor, _pose_sdf(tmp_path), **common)
+    assert Chem.MolToSmiles(with_smiles.mol) == Chem.MolToSmiles(from_sdf.mol)
+    assert _contacts(with_smiles) == _contacts(from_sdf)
+    assert build_pose_diagram(receptor, pose, **common).metadata["bond_orders_known"] is False
