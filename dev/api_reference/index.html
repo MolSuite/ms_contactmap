@@ -606,6 +606,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#ms_contactmap.interactions.build_pose_diagram" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;build_pose_diagram
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1501,6 +1512,17 @@
     <span class="md-ellipsis">
       <span class="md-typeset">
         <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;build_diagram
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ms_contactmap.interactions.build_pose_diagram" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;build_pose_diagram
       </span>
     </span>
   </a>
@@ -3165,6 +3187,14 @@ terms, so the layout and rendering stages never see Biopython.</p>
                 </div>
               </td>
             </tr>
+            <tr class="doc-section-item">
+              <td><code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-function&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-function-name&quot;&gt;build_pose_diagram&lt;/span&gt;" href="./#ms_contactmap.interactions.build_pose_diagram">build_pose_diagram</a></code></td>
+              <td>
+                <div class="doc-md-description">
+                  <p>Diagram of a docked pose from the receptor file and the pose itself.</p>
+                </div>
+              </td>
+            </tr>
       </tbody>
     </table>
 
@@ -3316,7 +3346,7 @@ fully buried-then-freed nitrogen are compared on the same footing.</p>
 
 
 <a href="#ms_contactmap.interactions.build_diagram" class="headerlink" title="Permanent link">&para;</a></h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">build_diagram</span><span class="p">(</span><span class="n">pdb_path</span><span class="p">,</span> <span class="n">resname</span><span class="p">,</span> <span class="n">smiles</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">chain</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">resnum</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">compute_exposure</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">True</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;Diagram&lt;/span&gt;
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">build_diagram</span><span class="p">(</span><span class="n">pdb_path</span><span class="p">,</span> <span class="n">resname</span><span class="p">,</span> <span class="n">smiles</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">chain</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">resnum</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">compute_exposure</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">ligand</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;Diagram&lt;/span&gt;
 
 
   &lt;span class=&quot;doc doc-labels&quot;&gt;
@@ -3327,8 +3357,11 @@ fully buried-then-freed nitrogen are compared on the same footing.</p>
     <div class="doc doc-contents ">
 
         <p>Assemble one diagram with the native detector.</p>
-<p><code>compute_exposure</code> may be disabled for a fast analysis when solvent halos
-are not needed.</p>
+<p>The ligand chemistry comes from <code>smiles</code> or from <code>ligand</code> (an RDKit
+<code>Mol</code> or an <code>.sdf</code>/<code>.mol</code>/<code>.mol2</code> file of the same pose); with
+neither, the bond orders are unknown and the legend says so.  See
+:func:<code>~ms_contactmap.chem.load_ligand</code>.  <code>compute_exposure</code> may be
+disabled for a fast analysis when solvent halos are not needed.</p>
 
 
             <details class="mkdocstrings-source">
@@ -3435,22 +3468,33 @@ are not needed.</p>
 <span class="normal">271</span>
 <span class="normal">272</span>
 <span class="normal">273</span>
-<span class="normal">274</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">build_diagram</span><span class="p">(</span>
+<span class="normal">274</span>
+<span class="normal">275</span>
+<span class="normal">276</span>
+<span class="normal">277</span>
+<span class="normal">278</span>
+<span class="normal">279</span>
+<span class="normal">280</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">build_diagram</span><span class="p">(</span>
     <span class="n">pdb_path</span><span class="p">,</span>
     <span class="n">resname</span><span class="p">,</span>
-    <span class="n">smiles</span><span class="p">,</span>
+    <span class="n">smiles</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
     <span class="n">name</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
     <span class="n">chain</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
     <span class="n">resnum</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
     <span class="n">compute_exposure</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">ligand</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Diagram</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">"""Assemble one diagram with the native detector.</span>
 
-<span class="sd">    ``compute_exposure`` may be disabled for a fast analysis when solvent halos</span>
-<span class="sd">    are not needed.</span>
+<span class="sd">    The ligand chemistry comes from ``smiles`` or from ``ligand`` (an RDKit</span>
+<span class="sd">    ``Mol`` or an ``.sdf``/``.mol``/``.mol2`` file of the same pose); with</span>
+<span class="sd">    neither, the bond orders are unknown and the legend says so.  See</span>
+<span class="sd">    :func:`~ms_contactmap.chem.load_ligand`.  ``compute_exposure`` may be</span>
+<span class="sd">    disabled for a fast analysis when solvent halos are not needed.</span>
 <span class="sd">    """</span>
     <span class="n">pdb_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">pdb_path</span><span class="p">)</span>
-    <span class="n">geom</span> <span class="o">=</span> <span class="n">load_ligand</span><span class="p">(</span><span class="n">pdb_path</span><span class="p">,</span> <span class="n">resname</span><span class="p">,</span> <span class="n">smiles</span><span class="p">,</span> <span class="n">chain</span><span class="o">=</span><span class="n">chain</span><span class="p">,</span> <span class="n">resnum</span><span class="o">=</span><span class="n">resnum</span><span class="p">)</span>
+    <span class="n">geom</span> <span class="o">=</span> <span class="n">load_ligand</span><span class="p">(</span><span class="n">pdb_path</span><span class="p">,</span> <span class="n">resname</span><span class="p">,</span> <span class="n">smiles</span><span class="p">,</span> <span class="n">chain</span><span class="o">=</span><span class="n">chain</span><span class="p">,</span> <span class="n">resnum</span><span class="o">=</span><span class="n">resnum</span><span class="p">,</span> <span class="n">ligand</span><span class="o">=</span><span class="n">ligand</span><span class="p">)</span>
     <span class="n">atoms</span> <span class="o">=</span> <span class="n">read_pdb_atoms</span><span class="p">(</span><span class="n">pdb_path</span><span class="p">)</span>
     <span class="n">serial_to_atom</span> <span class="o">=</span> <span class="p">{</span><span class="n">a</span><span class="o">.</span><span class="n">serial</span><span class="p">:</span> <span class="n">a</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">atoms</span><span class="p">}</span>
 
@@ -3536,8 +3580,161 @@ are not needed.</p>
                 <span class="s2">"resnum"</span><span class="p">:</span> <span class="n">geom</span><span class="o">.</span><span class="n">resnum</span><span class="p">,</span>
             <span class="p">},</span>
             <span class="s2">"exposure_computed"</span><span class="p">:</span> <span class="nb">bool</span><span class="p">(</span><span class="n">compute_exposure</span><span class="p">),</span>
+            <span class="s2">"bond_orders_known"</span><span class="p">:</span> <span class="n">geom</span><span class="o">.</span><span class="n">bond_orders_known</span><span class="p">,</span>
         <span class="p">},</span>
     <span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ms_contactmap.interactions.build_pose_diagram" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <span class="doc doc-object-name doc-function-name">build_pose_diagram</span>
+
+
+<a href="#ms_contactmap.interactions.build_pose_diagram" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">build_pose_diagram</span><span class="p">(</span><span class="n">receptor</span><span class="p">,</span> <span class="n">ligand</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">compute_exposure</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">smiles</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;Diagram&lt;/span&gt;
+
+
+  &lt;span class=&quot;doc doc-labels&quot;&gt;
+      &lt;small class=&quot;doc doc-label doc-label-dataclass&quot;&gt;&lt;code&gt;dataclass&lt;/code&gt;&lt;/small&gt;
+  &lt;/span&gt;" href="./#ms_contactmap.model.Diagram">Diagram</a></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Diagram of a docked pose from the receptor file and the pose itself.</p>
+<p><code>receptor</code> is a <code>.pdb</code>, <code>.pdbqt</code> or <code>.cif</code> file; <code>ligand</code> is an
+RDKit <code>Mol</code> with the pose conformer, or an <code>.sdf</code>/<code>.mol</code>/<code>.mol2</code>
+file, whose own bonds and hydrogens are kept.  A <code>.pdb</code> ligand carries no
+bond orders: they come from <code>smiles</code>, or stay unknown without it.  The complex that
+:func:<code>build_diagram</code> reads is assembled here, in a temporary file, with
+the pose as residue <code>UNL</code> 1 on a chain the receptor does not use.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/ms_contactmap/interactions.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">328</span>
+<span class="normal">329</span>
+<span class="normal">330</span>
+<span class="normal">331</span>
+<span class="normal">332</span>
+<span class="normal">333</span>
+<span class="normal">334</span>
+<span class="normal">335</span>
+<span class="normal">336</span>
+<span class="normal">337</span>
+<span class="normal">338</span>
+<span class="normal">339</span>
+<span class="normal">340</span>
+<span class="normal">341</span>
+<span class="normal">342</span>
+<span class="normal">343</span>
+<span class="normal">344</span>
+<span class="normal">345</span>
+<span class="normal">346</span>
+<span class="normal">347</span>
+<span class="normal">348</span>
+<span class="normal">349</span>
+<span class="normal">350</span>
+<span class="normal">351</span>
+<span class="normal">352</span>
+<span class="normal">353</span>
+<span class="normal">354</span>
+<span class="normal">355</span>
+<span class="normal">356</span>
+<span class="normal">357</span>
+<span class="normal">358</span>
+<span class="normal">359</span>
+<span class="normal">360</span>
+<span class="normal">361</span>
+<span class="normal">362</span>
+<span class="normal">363</span>
+<span class="normal">364</span>
+<span class="normal">365</span>
+<span class="normal">366</span>
+<span class="normal">367</span>
+<span class="normal">368</span>
+<span class="normal">369</span>
+<span class="normal">370</span>
+<span class="normal">371</span>
+<span class="normal">372</span>
+<span class="normal">373</span>
+<span class="normal">374</span>
+<span class="normal">375</span>
+<span class="normal">376</span>
+<span class="normal">377</span>
+<span class="normal">378</span>
+<span class="normal">379</span>
+<span class="normal">380</span>
+<span class="normal">381</span>
+<span class="normal">382</span>
+<span class="normal">383</span>
+<span class="normal">384</span>
+<span class="normal">385</span>
+<span class="normal">386</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">build_pose_diagram</span><span class="p">(</span>
+    <span class="n">receptor</span><span class="p">,</span>
+    <span class="n">ligand</span><span class="p">,</span>
+    <span class="n">name</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">compute_exposure</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="n">smiles</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Diagram</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Diagram of a docked pose from the receptor file and the pose itself.</span>
+
+<span class="sd">    ``receptor`` is a ``.pdb``, ``.pdbqt`` or ``.cif`` file; ``ligand`` is an</span>
+<span class="sd">    RDKit ``Mol`` with the pose conformer, or an ``.sdf``/``.mol``/``.mol2``</span>
+<span class="sd">    file, whose own bonds and hydrogens are kept.  A ``.pdb`` ligand carries no</span>
+<span class="sd">    bond orders: they come from ``smiles``, or stay unknown without it.  The complex that</span>
+<span class="sd">    :func:`build_diagram` reads is assembled here, in a temporary file, with</span>
+<span class="sd">    the pose as residue ``UNL`` 1 on a chain the receptor does not use.</span>
+<span class="sd">    """</span>
+    <span class="kn">import</span><span class="w"> </span><span class="nn">tempfile</span>
+
+    <span class="kn">from</span><span class="w"> </span><span class="nn">rdkit</span><span class="w"> </span><span class="kn">import</span> <span class="n">Chem</span>
+
+    <span class="kn">from</span><span class="w"> </span><span class="nn">.chem</span><span class="w"> </span><span class="kn">import</span> <span class="n">_read_ligand</span>
+
+    <span class="n">receptor</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">receptor</span><span class="p">)</span>
+    <span class="n">from_pdb</span> <span class="o">=</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">ligand</span><span class="p">,</span> <span class="n">Chem</span><span class="o">.</span><span class="n">Mol</span><span class="p">)</span> <span class="ow">and</span> <span class="n">Path</span><span class="p">(</span><span class="n">ligand</span><span class="p">)</span><span class="o">.</span><span class="n">suffix</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">==</span> <span class="s2">".pdb"</span>
+    <span class="k">if</span> <span class="n">from_pdb</span><span class="p">:</span>
+        <span class="n">mol</span> <span class="o">=</span> <span class="n">Chem</span><span class="o">.</span><span class="n">MolFromPDBFile</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">ligand</span><span class="p">),</span> <span class="n">sanitize</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">removeHs</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">proximityBonding</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">mol</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"RDKit could not read </span><span class="si">{</span><span class="n">ligand</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="n">smiles</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">"smiles is only used with a .pdb ligand"</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">mol</span> <span class="o">=</span> <span class="n">_read_ligand</span><span class="p">(</span><span class="n">ligand</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">mol</span><span class="o">.</span><span class="n">GetNumConformers</span><span class="p">():</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">"the ligand has no coordinates"</span><span class="p">)</span>
+    <span class="n">records</span> <span class="o">=</span> <span class="n">_receptor_records</span><span class="p">(</span><span class="n">receptor</span><span class="p">)</span>
+    <span class="n">used_chains</span> <span class="o">=</span> <span class="p">{</span><span class="n">line</span><span class="p">[</span><span class="mi">21</span><span class="p">]</span> <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">records</span><span class="p">}</span>
+    <span class="n">chain</span> <span class="o">=</span> <span class="nb">next</span><span class="p">((</span><span class="n">c</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="s2">"ZYXWVUTSRQPONMLKJIHGFEDCBA"</span> <span class="k">if</span> <span class="n">c</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">used_chains</span><span class="p">),</span> <span class="kc">None</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">chain</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">receptor</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">: no free chain id left for the ligand"</span><span class="p">)</span>
+    <span class="n">serial</span> <span class="o">=</span> <span class="nb">max</span><span class="p">((</span><span class="nb">int</span><span class="p">(</span><span class="n">line</span><span class="p">[</span><span class="mi">6</span><span class="p">:</span><span class="mi">11</span><span class="p">])</span> <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">records</span> <span class="k">if</span> <span class="n">line</span><span class="p">[</span><span class="mi">6</span><span class="p">:</span><span class="mi">11</span><span class="p">]</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">isdigit</span><span class="p">()),</span> <span class="n">default</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+    <span class="n">conf</span> <span class="o">=</span> <span class="n">mol</span><span class="o">.</span><span class="n">GetConformer</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">atom</span> <span class="ow">in</span> <span class="n">mol</span><span class="o">.</span><span class="n">GetAtoms</span><span class="p">():</span>
+        <span class="n">serial</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="n">p</span> <span class="o">=</span> <span class="n">conf</span><span class="o">.</span><span class="n">GetAtomPosition</span><span class="p">(</span><span class="n">atom</span><span class="o">.</span><span class="n">GetIdx</span><span class="p">())</span>
+        <span class="n">symbol</span> <span class="o">=</span> <span class="n">atom</span><span class="o">.</span><span class="n">GetSymbol</span><span class="p">()</span>
+        <span class="n">atom_name</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">symbol</span><span class="si">}{</span><span class="n">atom</span><span class="o">.</span><span class="n">GetIdx</span><span class="p">()</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="si">}</span><span class="s2">"</span><span class="p">[:</span><span class="mi">4</span><span class="p">]</span>
+        <span class="n">records</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">"HETATM</span><span class="si">{</span><span class="n">serial</span><span class="si">:</span><span class="s2">&gt;5</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">atom_name</span><span class="si">:</span><span class="s2">&lt;4</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">POSE_RESNAME</span><span class="si">:</span><span class="s2">&gt;3</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">chain</span><span class="si">}{</span><span class="mi">1</span><span class="si">:</span><span class="s2">&gt;4</span><span class="si">}</span><span class="s2">    "</span>
+            <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">p</span><span class="o">.</span><span class="n">x</span><span class="si">:</span><span class="s2">8.3f</span><span class="si">}{</span><span class="n">p</span><span class="o">.</span><span class="n">y</span><span class="si">:</span><span class="s2">8.3f</span><span class="si">}{</span><span class="n">p</span><span class="o">.</span><span class="n">z</span><span class="si">:</span><span class="s2">8.3f</span><span class="si">}</span><span class="s2">  1.00  0.00          </span><span class="si">{</span><span class="n">symbol</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span><span class="si">:</span><span class="s2">&gt;2</span><span class="si">}</span><span class="s2">"</span>
+        <span class="p">)</span>
+    <span class="k">with</span> <span class="n">tempfile</span><span class="o">.</span><span class="n">TemporaryDirectory</span><span class="p">(</span><span class="n">prefix</span><span class="o">=</span><span class="s2">"ms_contactmap_"</span><span class="p">)</span> <span class="k">as</span> <span class="n">scratch</span><span class="p">:</span>
+        <span class="n">complex_pdb</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">scratch</span><span class="p">)</span> <span class="o">/</span> <span class="s2">"complex.pdb"</span>
+        <span class="n">complex_pdb</span><span class="o">.</span><span class="n">write_text</span><span class="p">(</span><span class="s2">"</span><span class="se">\n</span><span class="s2">"</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">records</span><span class="p">)</span> <span class="o">+</span> <span class="s2">"</span><span class="se">\n</span><span class="s2">END</span><span class="se">\n</span><span class="s2">"</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s2">"utf-8"</span><span class="p">)</span>
+        <span class="n">diagram</span> <span class="o">=</span> <span class="n">build_diagram</span><span class="p">(</span>
+            <span class="n">complex_pdb</span><span class="p">,</span> <span class="n">POSE_RESNAME</span><span class="p">,</span> <span class="n">smiles</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="n">name</span> <span class="ow">or</span> <span class="n">receptor</span><span class="o">.</span><span class="n">stem</span><span class="p">,</span> <span class="n">chain</span><span class="o">=</span><span class="n">chain</span><span class="p">,</span> <span class="n">resnum</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+            <span class="n">compute_exposure</span><span class="o">=</span><span class="n">compute_exposure</span><span class="p">,</span> <span class="n">ligand</span><span class="o">=</span><span class="kc">None</span> <span class="k">if</span> <span class="n">from_pdb</span> <span class="k">else</span> <span class="n">mol</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="n">diagram</span><span class="o">.</span><span class="n">metadata</span><span class="p">[</span><span class="s2">"source_pdb"</span><span class="p">]</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">receptor</span><span class="o">.</span><span class="n">resolve</span><span class="p">())</span>
+    <span class="k">return</span> <span class="n">diagram</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -4407,7 +4604,7 @@ refuse to build anything rather than draw a confident, wrong diagram.</p>
               <td><code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-function&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-function-name&quot;&gt;load_ligand&lt;/span&gt;" href="./#ms_contactmap.chem.load_ligand">load_ligand</a></code></td>
               <td>
                 <div class="doc-md-description">
-                  <p>Build the ligand mol for <code>resname</code> in <code>pdb_path</code> using <code>smiles</code>.</p>
+                  <p>Build the ligand mol for <code>resname</code> in <code>pdb_path</code>.</p>
                 </div>
               </td>
             </tr>
@@ -4500,7 +4697,7 @@ detection reports only by serial number.</p>
   </span>
 
 <a href="#ms_contactmap.chem.LigandGeometry" class="headerlink" title="Permanent link">&para;</a></h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">LigandGeometry</span><span class="p">(</span><span class="n">mol</span><span class="p">:</span> <span class="n"><span title="rdkit.Chem.Mol">Mol</span></span><span class="p">,</span> <span class="n">coords_2d</span><span class="p">:</span> <span class="n"><span title="list">list</span></span><span class="p">[</span><span class="n"><span title="tuple">tuple</span></span><span class="p">[</span><span class="n"><span title="float">float</span></span><span class="p">,</span> <span class="n"><span title="float">float</span></span><span class="p">]],</span> <span class="n">coords_3d</span><span class="p">:</span> <span class="n"><span title="list">list</span></span><span class="p">[</span><span class="n"><span title="tuple">tuple</span></span><span class="p">[</span><span class="n"><span title="float">float</span></span><span class="p">,</span> <span class="n"><span title="float">float</span></span><span class="p">,</span> <span class="n"><span title="float">float</span></span><span class="p">]],</span> <span class="n">serial_to_idx</span><span class="p">:</span> <span class="n"><span title="dict">dict</span></span><span class="p">[</span><span class="n"><span title="int">int</span></span><span class="p">,</span> <span class="n"><span title="int">int</span></span><span class="p">],</span> <span class="n">resname</span><span class="p">:</span> <span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="n">chain</span><span class="p">:</span> <span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="n">resnum</span><span class="p">:</span> <span class="n"><span title="int">int</span></span><span class="p">,</span> <span class="n">alt_coords_2d</span><span class="p">:</span> <span class="n"><span title="list">list</span></span><span class="p">[</span><span class="n"><span title="list">list</span></span><span class="p">[</span><span class="n"><span title="tuple">tuple</span></span><span class="p">[</span><span class="n"><span title="float">float</span></span><span class="p">,</span> <span class="n"><span title="float">float</span></span><span class="p">]]]</span> <span class="o">=</span> <span class="n"><span title="list">list</span></span><span class="p">(),</span> <span class="n">donor_hydrogens</span><span class="p">:</span> <span class="n"><span title="dict">dict</span></span><span class="p">[</span><span class="n"><span title="int">int</span></span><span class="p">,</span> <span class="n"><span title="list">list</span></span><span class="p">[</span><span class="n"><span title="tuple">tuple</span></span><span class="p">[</span><span class="n"><span title="float">float</span></span><span class="p">,</span> <span class="n"><span title="float">float</span></span><span class="p">,</span> <span class="n"><span title="float">float</span></span><span class="p">]]]</span> <span class="o">=</span> <span class="n"><span title="dict">dict</span></span><span class="p">())</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">LigandGeometry</span><span class="p">(</span><span class="n">mol</span><span class="p">:</span> <span class="n"><span title="rdkit.Chem.Mol">Mol</span></span><span class="p">,</span> <span class="n">coords_2d</span><span class="p">:</span> <span class="n"><span title="list">list</span></span><span class="p">[</span><span class="n"><span title="tuple">tuple</span></span><span class="p">[</span><span class="n"><span title="float">float</span></span><span class="p">,</span> <span class="n"><span title="float">float</span></span><span class="p">]],</span> <span class="n">coords_3d</span><span class="p">:</span> <span class="n"><span title="list">list</span></span><span class="p">[</span><span class="n"><span title="tuple">tuple</span></span><span class="p">[</span><span class="n"><span title="float">float</span></span><span class="p">,</span> <span class="n"><span title="float">float</span></span><span class="p">,</span> <span class="n"><span title="float">float</span></span><span class="p">]],</span> <span class="n">serial_to_idx</span><span class="p">:</span> <span class="n"><span title="dict">dict</span></span><span class="p">[</span><span class="n"><span title="int">int</span></span><span class="p">,</span> <span class="n"><span title="int">int</span></span><span class="p">],</span> <span class="n">resname</span><span class="p">:</span> <span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="n">chain</span><span class="p">:</span> <span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="n">resnum</span><span class="p">:</span> <span class="n"><span title="int">int</span></span><span class="p">,</span> <span class="n">alt_coords_2d</span><span class="p">:</span> <span class="n"><span title="list">list</span></span><span class="p">[</span><span class="n"><span title="list">list</span></span><span class="p">[</span><span class="n"><span title="tuple">tuple</span></span><span class="p">[</span><span class="n"><span title="float">float</span></span><span class="p">,</span> <span class="n"><span title="float">float</span></span><span class="p">]]]</span> <span class="o">=</span> <span class="n"><span title="list">list</span></span><span class="p">(),</span> <span class="n">donor_hydrogens</span><span class="p">:</span> <span class="n"><span title="dict">dict</span></span><span class="p">[</span><span class="n"><span title="int">int</span></span><span class="p">,</span> <span class="n"><span title="list">list</span></span><span class="p">[</span><span class="n"><span title="tuple">tuple</span></span><span class="p">[</span><span class="n"><span title="float">float</span></span><span class="p">,</span> <span class="n"><span title="float">float</span></span><span class="p">,</span> <span class="n"><span title="float">float</span></span><span class="p">]]]</span> <span class="o">=</span> <span class="n"><span title="dict">dict</span></span><span class="p">(),</span> <span class="n">bond_orders_known</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">True</span><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -4570,8 +4767,7 @@ they are always malformed vendor output, never something we could use.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/ms_contactmap/chem.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 74</span>
-<span class="normal"> 75</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 75</span>
 <span class="normal"> 76</span>
 <span class="normal"> 77</span>
 <span class="normal"> 78</span>
@@ -4608,7 +4804,8 @@ they are always malformed vendor output, never something we could use.</p>
 <span class="normal">109</span>
 <span class="normal">110</span>
 <span class="normal">111</span>
-<span class="normal">112</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">read_pdb_atoms</span><span class="p">(</span><span class="n">pdb_path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">PdbAtom</span><span class="p">]:</span>
+<span class="normal">112</span>
+<span class="normal">113</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">read_pdb_atoms</span><span class="p">(</span><span class="n">pdb_path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">PdbAtom</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">"""Parse every ATOM/HETATM of the first model, keeping only major altlocs.</span>
 
 <span class="sd">    Hydrogens are kept here -- callers that want heavy atoms filter on</span>
@@ -4681,10 +4878,7 @@ depiction is one of the candidates, so a flip is never mandatory.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/ms_contactmap/chem.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">245</span>
-<span class="normal">246</span>
-<span class="normal">247</span>
-<span class="normal">248</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">248</span>
 <span class="normal">249</span>
 <span class="normal">250</span>
 <span class="normal">251</span>
@@ -4869,7 +5063,10 @@ depiction is one of the candidates, so a flip is never mandatory.</p>
 <span class="normal">430</span>
 <span class="normal">431</span>
 <span class="normal">432</span>
-<span class="normal">433</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">phosphate_axis_variants</span><span class="p">(</span>
+<span class="normal">433</span>
+<span class="normal">434</span>
+<span class="normal">435</span>
+<span class="normal">436</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">phosphate_axis_variants</span><span class="p">(</span>
     <span class="n">mol</span><span class="p">:</span> <span class="n">Chem</span><span class="o">.</span><span class="n">Mol</span><span class="p">,</span>
     <span class="n">views</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="nb">float</span><span class="p">]]],</span>
     <span class="n">metal_groups</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]],</span>
@@ -5072,7 +5269,7 @@ depiction is one of the candidates, so a flip is never mandatory.</p>
 
 
 <a href="#ms_contactmap.chem.load_ligand" class="headerlink" title="Permanent link">&para;</a></h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">load_ligand</span><span class="p">(</span><span class="n">pdb_path</span><span class="p">,</span> <span class="n">resname</span><span class="p">,</span> <span class="n">smiles</span><span class="p">,</span> <span class="n">chain</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">resnum</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LigandGeometry&lt;/span&gt;
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">load_ligand</span><span class="p">(</span><span class="n">pdb_path</span><span class="p">,</span> <span class="n">resname</span><span class="p">,</span> <span class="n">smiles</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">chain</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">resnum</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">ligand</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LigandGeometry&lt;/span&gt;
 
 
   &lt;span class=&quot;doc doc-labels&quot;&gt;
@@ -5082,157 +5279,144 @@ depiction is one of the candidates, so a flip is never mandatory.</p>
 
     <div class="doc doc-contents ">
 
-        <p>Build the ligand mol for <code>resname</code> in <code>pdb_path</code> using <code>smiles</code>.</p>
+        <p>Build the ligand mol for <code>resname</code> in <code>pdb_path</code>.</p>
+<p>The bond orders come from exactly one of:</p>
+<ul>
+<li><code>smiles</code> -- a template matched onto the HETATM block, whose bonds are
+  perceived from geometry;</li>
+<li><code>ligand</code> -- an RDKit <code>Mol</code> or an <code>.sdf</code>/<code>.mol</code>/<code>.mol2</code> file of the
+  same pose.  It already carries connectivity, bond orders and charges, so
+  nothing is perceived: its atoms are matched to the HETATM records by
+  position;</li>
+<li>neither -- bonds are perceived from geometry and left single, and
+  :attr:<code>LigandGeometry.bond_orders_known</code> is <code>False</code>.</li>
+</ul>
 <p><code>chain</code>/<code>resnum</code> disambiguate between copies; omit them to take the
 first copy in the file.  Raises :class:<code>ValueError</code> if the ligand is absent
-or if the SMILES does not match the HETATM block.</p>
+or does not match the HETATM block.</p>
 
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/ms_contactmap/chem.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">542</span>
-<span class="normal">543</span>
-<span class="normal">544</span>
-<span class="normal">545</span>
-<span class="normal">546</span>
-<span class="normal">547</span>
-<span class="normal">548</span>
-<span class="normal">549</span>
-<span class="normal">550</span>
-<span class="normal">551</span>
-<span class="normal">552</span>
-<span class="normal">553</span>
-<span class="normal">554</span>
-<span class="normal">555</span>
-<span class="normal">556</span>
-<span class="normal">557</span>
-<span class="normal">558</span>
-<span class="normal">559</span>
-<span class="normal">560</span>
-<span class="normal">561</span>
-<span class="normal">562</span>
-<span class="normal">563</span>
-<span class="normal">564</span>
-<span class="normal">565</span>
-<span class="normal">566</span>
-<span class="normal">567</span>
-<span class="normal">568</span>
-<span class="normal">569</span>
-<span class="normal">570</span>
-<span class="normal">571</span>
-<span class="normal">572</span>
-<span class="normal">573</span>
-<span class="normal">574</span>
-<span class="normal">575</span>
-<span class="normal">576</span>
-<span class="normal">577</span>
-<span class="normal">578</span>
-<span class="normal">579</span>
-<span class="normal">580</span>
-<span class="normal">581</span>
-<span class="normal">582</span>
-<span class="normal">583</span>
-<span class="normal">584</span>
-<span class="normal">585</span>
-<span class="normal">586</span>
-<span class="normal">587</span>
-<span class="normal">588</span>
-<span class="normal">589</span>
-<span class="normal">590</span>
-<span class="normal">591</span>
-<span class="normal">592</span>
-<span class="normal">593</span>
-<span class="normal">594</span>
-<span class="normal">595</span>
-<span class="normal">596</span>
-<span class="normal">597</span>
-<span class="normal">598</span>
-<span class="normal">599</span>
-<span class="normal">600</span>
-<span class="normal">601</span>
-<span class="normal">602</span>
-<span class="normal">603</span>
-<span class="normal">604</span>
-<span class="normal">605</span>
-<span class="normal">606</span>
-<span class="normal">607</span>
-<span class="normal">608</span>
-<span class="normal">609</span>
-<span class="normal">610</span>
-<span class="normal">611</span>
-<span class="normal">612</span>
-<span class="normal">613</span>
-<span class="normal">614</span>
-<span class="normal">615</span>
-<span class="normal">616</span>
-<span class="normal">617</span>
-<span class="normal">618</span>
-<span class="normal">619</span>
-<span class="normal">620</span>
-<span class="normal">621</span>
-<span class="normal">622</span>
-<span class="normal">623</span>
-<span class="normal">624</span>
-<span class="normal">625</span>
-<span class="normal">626</span>
-<span class="normal">627</span>
-<span class="normal">628</span>
-<span class="normal">629</span>
-<span class="normal">630</span>
-<span class="normal">631</span>
-<span class="normal">632</span>
-<span class="normal">633</span>
-<span class="normal">634</span>
-<span class="normal">635</span>
-<span class="normal">636</span>
-<span class="normal">637</span>
-<span class="normal">638</span>
-<span class="normal">639</span>
-<span class="normal">640</span>
-<span class="normal">641</span>
-<span class="normal">642</span>
-<span class="normal">643</span>
-<span class="normal">644</span>
-<span class="normal">645</span>
-<span class="normal">646</span>
-<span class="normal">647</span>
-<span class="normal">648</span>
-<span class="normal">649</span>
-<span class="normal">650</span>
-<span class="normal">651</span>
-<span class="normal">652</span>
-<span class="normal">653</span>
-<span class="normal">654</span>
-<span class="normal">655</span>
-<span class="normal">656</span>
-<span class="normal">657</span>
-<span class="normal">658</span>
-<span class="normal">659</span>
-<span class="normal">660</span>
-<span class="normal">661</span>
-<span class="normal">662</span>
-<span class="normal">663</span>
-<span class="normal">664</span>
-<span class="normal">665</span>
-<span class="normal">666</span>
-<span class="normal">667</span>
-<span class="normal">668</span>
-<span class="normal">669</span>
-<span class="normal">670</span>
-<span class="normal">671</span>
-<span class="normal">672</span>
-<span class="normal">673</span>
-<span class="normal">674</span>
-<span class="normal">675</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">load_ligand</span><span class="p">(</span><span class="n">pdb_path</span><span class="p">,</span> <span class="n">resname</span><span class="p">,</span> <span class="n">smiles</span><span class="p">,</span> <span class="n">chain</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">resnum</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">LigandGeometry</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">"""Build the ligand mol for ``resname`` in ``pdb_path`` using ``smiles``.</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">757</span>
+<span class="normal">758</span>
+<span class="normal">759</span>
+<span class="normal">760</span>
+<span class="normal">761</span>
+<span class="normal">762</span>
+<span class="normal">763</span>
+<span class="normal">764</span>
+<span class="normal">765</span>
+<span class="normal">766</span>
+<span class="normal">767</span>
+<span class="normal">768</span>
+<span class="normal">769</span>
+<span class="normal">770</span>
+<span class="normal">771</span>
+<span class="normal">772</span>
+<span class="normal">773</span>
+<span class="normal">774</span>
+<span class="normal">775</span>
+<span class="normal">776</span>
+<span class="normal">777</span>
+<span class="normal">778</span>
+<span class="normal">779</span>
+<span class="normal">780</span>
+<span class="normal">781</span>
+<span class="normal">782</span>
+<span class="normal">783</span>
+<span class="normal">784</span>
+<span class="normal">785</span>
+<span class="normal">786</span>
+<span class="normal">787</span>
+<span class="normal">788</span>
+<span class="normal">789</span>
+<span class="normal">790</span>
+<span class="normal">791</span>
+<span class="normal">792</span>
+<span class="normal">793</span>
+<span class="normal">794</span>
+<span class="normal">795</span>
+<span class="normal">796</span>
+<span class="normal">797</span>
+<span class="normal">798</span>
+<span class="normal">799</span>
+<span class="normal">800</span>
+<span class="normal">801</span>
+<span class="normal">802</span>
+<span class="normal">803</span>
+<span class="normal">804</span>
+<span class="normal">805</span>
+<span class="normal">806</span>
+<span class="normal">807</span>
+<span class="normal">808</span>
+<span class="normal">809</span>
+<span class="normal">810</span>
+<span class="normal">811</span>
+<span class="normal">812</span>
+<span class="normal">813</span>
+<span class="normal">814</span>
+<span class="normal">815</span>
+<span class="normal">816</span>
+<span class="normal">817</span>
+<span class="normal">818</span>
+<span class="normal">819</span>
+<span class="normal">820</span>
+<span class="normal">821</span>
+<span class="normal">822</span>
+<span class="normal">823</span>
+<span class="normal">824</span>
+<span class="normal">825</span>
+<span class="normal">826</span>
+<span class="normal">827</span>
+<span class="normal">828</span>
+<span class="normal">829</span>
+<span class="normal">830</span>
+<span class="normal">831</span>
+<span class="normal">832</span>
+<span class="normal">833</span>
+<span class="normal">834</span>
+<span class="normal">835</span>
+<span class="normal">836</span>
+<span class="normal">837</span>
+<span class="normal">838</span>
+<span class="normal">839</span>
+<span class="normal">840</span>
+<span class="normal">841</span>
+<span class="normal">842</span>
+<span class="normal">843</span>
+<span class="normal">844</span>
+<span class="normal">845</span>
+<span class="normal">846</span>
+<span class="normal">847</span>
+<span class="normal">848</span>
+<span class="normal">849</span>
+<span class="normal">850</span>
+<span class="normal">851</span>
+<span class="normal">852</span>
+<span class="normal">853</span>
+<span class="normal">854</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">load_ligand</span><span class="p">(</span>
+    <span class="n">pdb_path</span><span class="p">,</span> <span class="n">resname</span><span class="p">,</span> <span class="n">smiles</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">chain</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">resnum</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">ligand</span><span class="o">=</span><span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">LigandGeometry</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Build the ligand mol for ``resname`` in ``pdb_path``.</span>
+
+<span class="sd">    The bond orders come from exactly one of:</span>
+
+<span class="sd">    * ``smiles`` -- a template matched onto the HETATM block, whose bonds are</span>
+<span class="sd">      perceived from geometry;</span>
+<span class="sd">    * ``ligand`` -- an RDKit ``Mol`` or an ``.sdf``/``.mol``/``.mol2`` file of the</span>
+<span class="sd">      same pose.  It already carries connectivity, bond orders and charges, so</span>
+<span class="sd">      nothing is perceived: its atoms are matched to the HETATM records by</span>
+<span class="sd">      position;</span>
+<span class="sd">    * neither -- bonds are perceived from geometry and left single, and</span>
+<span class="sd">      :attr:`LigandGeometry.bond_orders_known` is ``False``.</span>
 
 <span class="sd">    ``chain``/``resnum`` disambiguate between copies; omit them to take the</span>
 <span class="sd">    first copy in the file.  Raises :class:`ValueError` if the ligand is absent</span>
-<span class="sd">    or if the SMILES does not match the HETATM block.</span>
+<span class="sd">    or does not match the HETATM block.</span>
 <span class="sd">    """</span>
-    <span class="n">template</span> <span class="o">=</span> <span class="n">Chem</span><span class="o">.</span><span class="n">MolFromSmiles</span><span class="p">(</span><span class="n">smiles</span><span class="p">)</span>
-    <span class="k">if</span> <span class="n">template</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"SMILES for </span><span class="si">{</span><span class="n">resname</span><span class="si">}</span><span class="s2"> does not parse: </span><span class="si">{</span><span class="n">smiles</span><span class="si">!r}</span><span class="s2">"</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">smiles</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">ligand</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">"pass smiles or ligand, not both"</span><span class="p">)</span>
 
     <span class="n">records</span> <span class="o">=</span> <span class="n">_pick_copy</span><span class="p">(</span><span class="n">read_pdb_atoms</span><span class="p">(</span><span class="n">pdb_path</span><span class="p">),</span> <span class="n">resname</span><span class="p">,</span> <span class="n">chain</span><span class="p">,</span> <span class="n">resnum</span><span class="p">)</span>
     <span class="n">heavy</span> <span class="o">=</span> <span class="p">[</span><span class="n">a</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">records</span> <span class="k">if</span> <span class="n">a</span><span class="o">.</span><span class="n">element</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">"H"</span><span class="p">,</span> <span class="s2">"D"</span><span class="p">)]</span>
@@ -5261,63 +5445,14 @@ or if the SMILES does not match the HETATM block.</p>
                 <span class="p">(</span><span class="n">hydrogen</span><span class="o">.</span><span class="n">x</span><span class="p">,</span> <span class="n">hydrogen</span><span class="o">.</span><span class="n">y</span><span class="p">,</span> <span class="n">hydrogen</span><span class="o">.</span><span class="n">z</span><span class="p">)</span>
             <span class="p">)</span>
 
-    <span class="n">block</span> <span class="o">=</span> <span class="s2">"</span><span class="se">\n</span><span class="s2">"</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">a</span><span class="o">.</span><span class="n">line</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">heavy</span><span class="p">)</span> <span class="o">+</span> <span class="s2">"</span><span class="se">\n</span><span class="s2">END</span><span class="se">\n</span><span class="s2">"</span>
-    <span class="n">pdb_mol</span> <span class="o">=</span> <span class="n">Chem</span><span class="o">.</span><span class="n">MolFromPDBBlock</span><span class="p">(</span>
-        <span class="n">block</span><span class="p">,</span> <span class="n">sanitize</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">removeHs</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">proximityBonding</span><span class="o">=</span><span class="kc">True</span>
-    <span class="p">)</span>
-    <span class="k">if</span> <span class="n">pdb_mol</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"RDKit could not read the HETATM block of </span><span class="si">{</span><span class="n">resname</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
-
-    <span class="c1"># Heavy-atom composition, compared before the match is attempted:</span>
-    <span class="c1"># AssignBondOrdersFromTemplate matches the *template into* the PDB mol, so a</span>
-    <span class="c1"># template that is merely a fragment of the ligand succeeds quietly and</span>
-    <span class="c1"># leaves the rest of the molecule with guessed single bonds.</span>
-    <span class="n">pdb_formula</span> <span class="o">=</span> <span class="n">_formula</span><span class="p">(</span><span class="n">a</span><span class="o">.</span><span class="n">element</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">heavy</span><span class="p">)</span>
-    <span class="n">smiles_formula</span> <span class="o">=</span> <span class="n">_formula</span><span class="p">(</span><span class="n">a</span><span class="o">.</span><span class="n">GetSymbol</span><span class="p">()</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">template</span><span class="o">.</span><span class="n">GetAtoms</span><span class="p">())</span>
-    <span class="n">mismatch</span> <span class="o">=</span> <span class="p">(</span>
-        <span class="sa">f</span><span class="s2">"SMILES does not match the </span><span class="si">{</span><span class="n">resname</span><span class="si">}</span><span class="s2"> HETATM block in </span><span class="si">{</span><span class="n">pdb_path</span><span class="si">}</span><span class="s2">: "</span>
-        <span class="sa">f</span><span class="s2">"SMILES is </span><span class="si">{</span><span class="n">smiles_formula</span><span class="si">}</span><span class="s2"> (</span><span class="si">{</span><span class="n">template</span><span class="o">.</span><span class="n">GetNumAtoms</span><span class="p">()</span><span class="si">}</span><span class="s2"> heavy atoms), "</span>
-        <span class="sa">f</span><span class="s2">"PDB block is </span><span class="si">{</span><span class="n">pdb_formula</span><span class="si">}</span><span class="s2"> (</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">heavy</span><span class="p">)</span><span class="si">}</span><span class="s2"> heavy atoms)"</span>
-    <span class="p">)</span>
-    <span class="k">if</span> <span class="n">smiles_formula</span> <span class="o">!=</span> <span class="n">pdb_formula</span><span class="p">:</span>
-        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="n">mismatch</span><span class="p">)</span>
-    <span class="k">try</span><span class="p">:</span>
-        <span class="n">mol</span> <span class="o">=</span> <span class="n">AllChem</span><span class="o">.</span><span class="n">AssignBondOrdersFromTemplate</span><span class="p">(</span><span class="n">template</span><span class="p">,</span> <span class="n">pdb_mol</span><span class="p">)</span>
-    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>  <span class="c1"># noqa: BLE001 -- RDKit raises bare ValueError/RuntimeError</span>
-        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">mismatch</span><span class="si">}</span><span class="s2">. RDKit said: </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">exc</span>
-
-    <span class="c1"># The template match is a substructure match, so it can succeed on a</span>
-    <span class="c1"># fragment.  Atom-count equality is what makes serial -&gt; index safe.</span>
-    <span class="k">if</span> <span class="n">mol</span><span class="o">.</span><span class="n">GetNumAtoms</span><span class="p">()</span> <span class="o">!=</span> <span class="n">pdb_mol</span><span class="o">.</span><span class="n">GetNumAtoms</span><span class="p">():</span>
-        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-            <span class="sa">f</span><span class="s2">"AssignBondOrdersFromTemplate changed the atom count for </span><span class="si">{</span><span class="n">resname</span><span class="si">}</span><span class="s2"> "</span>
-            <span class="sa">f</span><span class="s2">"(</span><span class="si">{</span><span class="n">pdb_mol</span><span class="o">.</span><span class="n">GetNumAtoms</span><span class="p">()</span><span class="si">}</span><span class="s2"> -&gt; </span><span class="si">{</span><span class="n">mol</span><span class="o">.</span><span class="n">GetNumAtoms</span><span class="p">()</span><span class="si">}</span><span class="s2">); serial mapping "</span>
-            <span class="sa">f</span><span class="s2">"would be wrong"</span>
-        <span class="p">)</span>
-
-    <span class="n">_normalize_phosphate_oxyanions</span><span class="p">(</span><span class="n">mol</span><span class="p">)</span>
-    <span class="n">Chem</span><span class="o">.</span><span class="n">SanitizeMol</span><span class="p">(</span><span class="n">mol</span><span class="p">)</span>
-    <span class="c1"># Preserve any explicit pose hydrogens for exact D-H...A angles before the</span>
-    <span class="c1"># drawing molecule is reduced to heavy atoms.  PDB serials survive</span>
-    <span class="c1"># RemoveHs on their heavy neighbours and provide a stable remapping.</span>
-    <span class="n">full_conf</span> <span class="o">=</span> <span class="n">mol</span><span class="o">.</span><span class="n">GetConformer</span><span class="p">()</span>
-    <span class="k">for</span> <span class="n">atom</span> <span class="ow">in</span> <span class="n">mol</span><span class="o">.</span><span class="n">GetAtoms</span><span class="p">():</span>
-        <span class="k">if</span> <span class="n">atom</span><span class="o">.</span><span class="n">GetAtomicNum</span><span class="p">()</span> <span class="o">!=</span> <span class="mi">1</span> <span class="ow">or</span> <span class="n">atom</span><span class="o">.</span><span class="n">GetDegree</span><span class="p">()</span> <span class="o">!=</span> <span class="mi">1</span><span class="p">:</span>
-            <span class="k">continue</span>
-        <span class="n">heavy</span> <span class="o">=</span> <span class="n">atom</span><span class="o">.</span><span class="n">GetNeighbors</span><span class="p">()[</span><span class="mi">0</span><span class="p">]</span>
-        <span class="n">info</span> <span class="o">=</span> <span class="n">heavy</span><span class="o">.</span><span class="n">GetPDBResidueInfo</span><span class="p">()</span>
-        <span class="k">if</span> <span class="n">info</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="k">continue</span>
-        <span class="n">point</span> <span class="o">=</span> <span class="n">full_conf</span><span class="o">.</span><span class="n">GetAtomPosition</span><span class="p">(</span><span class="n">atom</span><span class="o">.</span><span class="n">GetIdx</span><span class="p">())</span>
-        <span class="n">hydrogen_by_heavy_serial</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="n">info</span><span class="o">.</span><span class="n">GetSerialNumber</span><span class="p">(),</span> <span class="p">[])</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
-            <span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">point</span><span class="o">.</span><span class="n">x</span><span class="p">),</span> <span class="nb">float</span><span class="p">(</span><span class="n">point</span><span class="o">.</span><span class="n">y</span><span class="p">),</span> <span class="nb">float</span><span class="p">(</span><span class="n">point</span><span class="o">.</span><span class="n">z</span><span class="p">))</span>
-        <span class="p">)</span>
-    <span class="n">mol</span> <span class="o">=</span> <span class="n">Chem</span><span class="o">.</span><span class="n">RemoveHs</span><span class="p">(</span><span class="n">mol</span><span class="p">)</span>
-    <span class="k">if</span> <span class="n">mol</span><span class="o">.</span><span class="n">GetNumAtoms</span><span class="p">()</span> <span class="o">!=</span> <span class="nb">len</span><span class="p">(</span><span class="n">heavy</span><span class="p">):</span>
-        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-            <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">resname</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">heavy</span><span class="p">)</span><span class="si">}</span><span class="s2"> heavy HETATM records became "</span>
-            <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">mol</span><span class="o">.</span><span class="n">GetNumAtoms</span><span class="p">()</span><span class="si">}</span><span class="s2"> atoms; the SMILES describes a different molecule"</span>
-        <span class="p">)</span>
+    <span class="k">if</span> <span class="n">ligand</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">mol</span><span class="p">,</span> <span class="n">file_hydrogens</span> <span class="o">=</span> <span class="n">_mol_from_ligand</span><span class="p">(</span><span class="n">ligand</span><span class="p">,</span> <span class="n">heavy</span><span class="p">,</span> <span class="n">resname</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">file_hydrogens</span><span class="p">:</span>
+            <span class="n">hydrogen_by_heavy_serial</span> <span class="o">=</span> <span class="n">file_hydrogens</span>
+    <span class="k">elif</span> <span class="n">smiles</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">mol</span> <span class="o">=</span> <span class="n">_mol_from_smiles</span><span class="p">(</span><span class="n">smiles</span><span class="p">,</span> <span class="n">pdb_path</span><span class="p">,</span> <span class="n">resname</span><span class="p">,</span> <span class="n">heavy</span><span class="p">,</span> <span class="n">hydrogen_by_heavy_serial</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">mol</span> <span class="o">=</span> <span class="n">_mol_from_geometry</span><span class="p">(</span><span class="n">resname</span><span class="p">,</span> <span class="n">heavy</span><span class="p">)</span>
 
     <span class="n">conf</span> <span class="o">=</span> <span class="n">mol</span><span class="o">.</span><span class="n">GetConformer</span><span class="p">()</span>
     <span class="n">coords_3d</span> <span class="o">=</span> <span class="p">[</span>
@@ -5356,6 +5491,7 @@ or if the SMILES does not match the HETATM block.</p>
         <span class="n">chain</span><span class="o">=</span><span class="n">first</span><span class="o">.</span><span class="n">chain</span><span class="p">,</span>
         <span class="n">resnum</span><span class="o">=</span><span class="n">first</span><span class="o">.</span><span class="n">resnum</span><span class="p">,</span>
         <span class="n">donor_hydrogens</span><span class="o">=</span><span class="n">donor_hydrogens</span><span class="p">,</span>
+        <span class="n">bond_orders_known</span><span class="o">=</span><span class="n">smiles</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">ligand</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">,</span>
     <span class="p">)</span>
 </code></pre></div></td></tr></table></div>
             </details>
@@ -7495,8 +7631,7 @@ its corners at wherever the partners ended up.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/ms_contactmap/widget.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">658</span>
-<span class="normal">659</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">659</span>
 <span class="normal">660</span>
 <span class="normal">661</span>
 <span class="normal">662</span>
@@ -7511,7 +7646,8 @@ its corners at wherever the partners ended up.</p>
 <span class="normal">671</span>
 <span class="normal">672</span>
 <span class="normal">673</span>
-<span class="normal">674</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">export_json</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
+<span class="normal">674</span>
+<span class="normal">675</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">export_json</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">"""Save analysis plus the current, possibly hand-edited layout."""</span>
     <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_diagram</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">_layout</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">"cannot export JSON before a diagram is loaded"</span><span class="p">)</span>
@@ -8124,7 +8260,8 @@ scripts and tests can call this instead of setting one up themselves.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/ms_contactmap/export.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">43</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">42</span>
+<span class="normal">43</span>
 <span class="normal">44</span>
 <span class="normal">45</span>
 <span class="normal">46</span>
@@ -8133,8 +8270,7 @@ scripts and tests can call this instead of setting one up themselves.</p>
 <span class="normal">49</span>
 <span class="normal">50</span>
 <span class="normal">51</span>
-<span class="normal">52</span>
-<span class="normal">53</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">ensure_app</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">QApplication</span><span class="p">:</span>
+<span class="normal">52</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">ensure_app</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">QApplication</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">"""Return the running QApplication, creating an offscreen one if needed.</span>
 
 <span class="sd">    Rendering a scene needs a QApplication even with no window on screen, so</span>
@@ -8159,19 +8295,23 @@ scripts and tests can call this instead of setting one up themselves.</p>
 
 
 <a href="#ms_contactmap.export.export_png" class="headerlink" title="Permanent link">&para;</a></h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">export_png</span><span class="p">(</span><span class="n">scene</span><span class="p">:</span> <span class="n"><span title="PySide6.QtWidgets.QGraphicsScene">QGraphicsScene</span></span><span class="p">,</span> <span class="n">path</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="n"><span title="pathlib.Path">Path</span></span><span class="p">,</span> <span class="n">scale</span><span class="p">:</span> <span class="n"><span title="float">float</span></span> <span class="o">=</span> <span class="mf">2.0</span><span class="p">,</span> <span class="n">background</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="s1">'#ffffff'</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="pathlib.Path">Path</span></span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">export_png</span><span class="p">(</span><span class="n">scene</span><span class="p">:</span> <span class="n"><span title="PySide6.QtWidgets.QGraphicsScene">QGraphicsScene</span></span><span class="p">,</span> <span class="n">path</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="n"><span title="pathlib.Path">Path</span></span><span class="p">,</span> <span class="n">scale</span><span class="p">:</span> <span class="n"><span title="float">float</span></span> <span class="o">=</span> <span class="mf">2.0</span><span class="p">,</span> <span class="n">background</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="s1">'#ffffff'</span><span class="p">,</span> <span class="n">dpi</span><span class="p">:</span> <span class="n"><span title="float">float</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="pathlib.Path">Path</span></span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
         <p>Render <code>scene</code> to a PNG at <code>scale</code> times its scene units.</p>
-<p><code>background=None</code> keeps the alpha channel transparent, which is how the
+<p><code>dpi</code> overrides <code>scale</code> with <code>dpi / 96</code>, so the PNG keeps the SVG's
+physical size (e.g. <code>dpi=300</code> for print).  Either way the file records
+its resolution, so the PNG and the SVG open at the same size.
+<code>background=None</code> keeps the alpha channel transparent, which is how the
 Maestro reference images in <code>data/</code> are stored.</p>
 
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/ms_contactmap/export.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">61</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">60</span>
+<span class="normal">61</span>
 <span class="normal">62</span>
 <span class="normal">63</span>
 <span class="normal">64</span>
@@ -8199,22 +8339,39 @@ Maestro reference images in <code>data/</code> are stored.</p>
 <span class="normal">86</span>
 <span class="normal">87</span>
 <span class="normal">88</span>
-<span class="normal">89</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">export_png</span><span class="p">(</span>
+<span class="normal">89</span>
+<span class="normal">90</span>
+<span class="normal">91</span>
+<span class="normal">92</span>
+<span class="normal">93</span>
+<span class="normal">94</span>
+<span class="normal">95</span>
+<span class="normal">96</span>
+<span class="normal">97</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">export_png</span><span class="p">(</span>
     <span class="n">scene</span><span class="p">:</span> <span class="n">QGraphicsScene</span><span class="p">,</span>
     <span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span>
     <span class="n">scale</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">2.0</span><span class="p">,</span>
     <span class="n">background</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="s2">"#ffffff"</span><span class="p">,</span>
+    <span class="n">dpi</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">"""Render ``scene`` to a PNG at ``scale`` times its scene units.</span>
 
+<span class="sd">    ``dpi`` overrides ``scale`` with ``dpi / 96``, so the PNG keeps the SVG's</span>
+<span class="sd">    physical size (e.g. ``dpi=300`` for print).  Either way the file records</span>
+<span class="sd">    its resolution, so the PNG and the SVG open at the same size.</span>
 <span class="sd">    ``background=None`` keeps the alpha channel transparent, which is how the</span>
 <span class="sd">    Maestro reference images in ``data/`` are stored.</span>
 <span class="sd">    """</span>
     <span class="n">ensure_app</span><span class="p">()</span>
+    <span class="k">if</span> <span class="n">dpi</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">scale</span> <span class="o">=</span> <span class="n">dpi</span> <span class="o">/</span> <span class="n">SCENE_DPI</span>
     <span class="n">rect</span> <span class="o">=</span> <span class="n">_target_rect</span><span class="p">(</span><span class="n">scene</span><span class="p">)</span>
     <span class="n">size</span> <span class="o">=</span> <span class="n">QSize</span><span class="p">(</span><span class="nb">max</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="nb">round</span><span class="p">(</span><span class="n">rect</span><span class="o">.</span><span class="n">width</span><span class="p">()</span> <span class="o">*</span> <span class="n">scale</span><span class="p">)),</span> <span class="nb">max</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="nb">round</span><span class="p">(</span><span class="n">rect</span><span class="o">.</span><span class="n">height</span><span class="p">()</span> <span class="o">*</span> <span class="n">scale</span><span class="p">)))</span>
     <span class="n">image</span> <span class="o">=</span> <span class="n">QImage</span><span class="p">(</span><span class="n">size</span><span class="p">,</span> <span class="n">QImage</span><span class="o">.</span><span class="n">Format_ARGB32_Premultiplied</span><span class="p">)</span>
     <span class="n">image</span><span class="o">.</span><span class="n">fill</span><span class="p">(</span><span class="n">QColor</span><span class="p">(</span><span class="n">background</span><span class="p">)</span> <span class="k">if</span> <span class="n">background</span> <span class="k">else</span> <span class="n">Qt</span><span class="o">.</span><span class="n">transparent</span><span class="p">)</span>
+    <span class="n">dots_per_meter</span> <span class="o">=</span> <span class="nb">round</span><span class="p">(</span><span class="n">scale</span> <span class="o">*</span> <span class="n">SCENE_DPI</span> <span class="o">/</span> <span class="mf">0.0254</span><span class="p">)</span>
+    <span class="n">image</span><span class="o">.</span><span class="n">setDotsPerMeterX</span><span class="p">(</span><span class="n">dots_per_meter</span><span class="p">)</span>
+    <span class="n">image</span><span class="o">.</span><span class="n">setDotsPerMeterY</span><span class="p">(</span><span class="n">dots_per_meter</span><span class="p">)</span>
 
     <span class="n">painter</span> <span class="o">=</span> <span class="n">QPainter</span><span class="p">(</span><span class="n">image</span><span class="p">)</span>
     <span class="n">painter</span><span class="o">.</span><span class="n">setRenderHint</span><span class="p">(</span><span class="n">QPainter</span><span class="o">.</span><span class="n">Antialiasing</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span>
@@ -8252,15 +8409,7 @@ Maestro reference images in <code>data/</code> are stored.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/ms_contactmap/export.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 92</span>
-<span class="normal"> 93</span>
-<span class="normal"> 94</span>
-<span class="normal"> 95</span>
-<span class="normal"> 96</span>
-<span class="normal"> 97</span>
-<span class="normal"> 98</span>
-<span class="normal"> 99</span>
-<span class="normal">100</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">100</span>
 <span class="normal">101</span>
 <span class="normal">102</span>
 <span class="normal">103</span>
@@ -8270,7 +8419,15 @@ Maestro reference images in <code>data/</code> are stored.</p>
 <span class="normal">107</span>
 <span class="normal">108</span>
 <span class="normal">109</span>
-<span class="normal">110</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">export_svg</span><span class="p">(</span><span class="n">scene</span><span class="p">:</span> <span class="n">QGraphicsScene</span><span class="p">,</span> <span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span> <span class="n">title</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">""</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
+<span class="normal">110</span>
+<span class="normal">111</span>
+<span class="normal">112</span>
+<span class="normal">113</span>
+<span class="normal">114</span>
+<span class="normal">115</span>
+<span class="normal">116</span>
+<span class="normal">117</span>
+<span class="normal">118</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">export_svg</span><span class="p">(</span><span class="n">scene</span><span class="p">:</span> <span class="n">QGraphicsScene</span><span class="p">,</span> <span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span> <span class="n">title</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">""</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">"""Render ``scene`` to a vector SVG at 1:1 scene units."""</span>
     <span class="n">ensure_app</span><span class="p">()</span>
     <span class="n">rect</span> <span class="o">=</span> <span class="n">_target_rect</span><span class="p">(</span><span class="n">scene</span><span class="p">)</span>

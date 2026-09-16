@@ -563,6 +563,20 @@ detects interactions, computes pocket context and exposure, and returns a
 <span class="k">for</span> <span class="n">interaction</span> <span class="ow">in</span> <span class="n">diagram</span><span class="o">.</span><span class="n">interactions</span><span class="p">:</span>
     <span class="nb">print</span><span class="p">(</span><span class="n">interaction</span><span class="o">.</span><span class="n">kind</span><span class="p">,</span> <span class="n">interaction</span><span class="o">.</span><span class="n">residue_key</span><span class="p">,</span> <span class="n">interaction</span><span class="o">.</span><span class="n">distance</span><span class="p">)</span>
 </code></pre></div>
+<p>Pass <code>ligand=</code> instead of <code>smiles=</code> to take the chemistry from the pose itself:
+a <code>.sdf</code>/<code>.mol</code>/<code>.mol2</code> path or an RDKit <code>Mol</code> with a conformer. Its heavy atoms
+must sit on the HETATM records (within 0.05 Å); a different pose raises
+<code>ValueError</code>.</p>
+<p>For a docked pose there is no complex file to hand over: pass the receptor and
+the pose, and the complex is assembled internally.</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">ms_contactmap</span><span class="w"> </span><span class="kn">import</span> <span class="n">build_pose_diagram</span>
+
+<span class="n">diagram</span> <span class="o">=</span> <span class="n">build_pose_diagram</span><span class="p">(</span><span class="s2">"receptor.pdbqt"</span><span class="p">,</span> <span class="s2">"pose.sdf"</span><span class="p">)</span>  <span class="c1"># or an RDKit Mol</span>
+</code></pre></div>
+<p>The receptor may be <code>.pdb</code>, <code>.pdbqt</code> (AutoDock types are mapped to elements) or
+<code>.cif</code>. A <code>.pdb</code> pose has no bond orders: pass <code>smiles=</code> for them, or the
+legend warns that the chemistry is not reliable (the same happens with
+<code>build_diagram</code> when neither <code>smiles</code> nor <code>ligand</code> is given).</p>
 <p>Set <code>compute_exposure=False</code> when solvent accessibility is unnecessary. This
 does not change interaction detection.</p>
 <h2 id="layout-and-persistence">Layout and persistence<a class="headerlink" href="#layout-and-persistence" title="Permanent link">&para;</a></h2>

@@ -557,6 +557,12 @@ same result can be used in a batch process or an interactive application.</p>
 <span class="w">  </span>--json<span class="w"> </span>contacts.json<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--png<span class="w"> </span>contacts.png
 </code></pre></div>
+<p><code>--smiles</code> supplies the bond orders for the ligand's HETATM block. When the same
+pose exists as <code>.sdf</code>, <code>.mol</code> or <code>.mol2</code>, pass <code>--ligand-file pose.sdf</code> instead:
+its bonds and hydrogens are used as they are, and its atoms are matched to the
+HETATM records by position. With neither, bonds are perceived from geometry
+and left single; the legend then warns that the bond orders, and the chemistry
+derived from them, are not reliable.</p>
 <p>Open a saved analysis without detecting the interactions again:</p>
 <div class="highlight"><pre><span></span><code>ms_contactmap<span class="w"> </span>--from-json<span class="w"> </span>contacts.json<span class="w"> </span>--show
 </code></pre></div>
