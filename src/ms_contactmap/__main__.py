@@ -21,7 +21,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--chain", default=None, help="restrict to this chain")
     parser.add_argument("--resnum", type=int, default=None, help="restrict to this residue number")
     chemistry = parser.add_mutually_exclusive_group()
-    chemistry.add_argument("--smiles", default=None, help="ligand SMILES, for bond orders")
+    chemistry.add_argument("--smiles", default=None,
+                           help="ligand SMILES, for bond orders; without it or --ligand-file "
+                                "the diagram is flagged as unreliable")
     chemistry.add_argument("--ligand-file", type=Path, default=None,
                            help="the same pose as .sdf/.mol/.mol2; its bonds are used as they are")
     parser.add_argument("--no-exposure", action="store_true",
@@ -31,6 +33,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--png", type=Path, default=None, help="write a PNG here")
     parser.add_argument("--svg", type=Path, default=None, help="write an SVG here")
     parser.add_argument("--scale", type=float, default=2.0, help="PNG scale factor")
+    parser.add_argument("--dpi", type=float, default=None,
+                        help="PNG resolution at the SVG's physical size; overrides --scale")
     parser.add_argument("--transparent", action="store_true", help="PNG without white background")
     parser.add_argument("--show", action="store_true", help="open the interactive window")
     args = parser.parse_args(argv)
@@ -43,8 +47,6 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("pass a PDB input or --from-json")
     if not args.from_json and not args.ligand:
         parser.error("--ligand is required with a PDB input")
-    if not args.from_json and not (args.smiles or args.ligand_file):
-        parser.error("--smiles or --ligand-file is required with a PDB input")
 
     from .export import ensure_app
     app = ensure_app()
@@ -82,7 +84,7 @@ def main(argv: list[str] | None = None) -> int:
         widget.export_json(args.json_output)
         print(f"wrote {args.json_output}", file=sys.stderr)
     if args.png:
-        widget.export_png(args.png, scale=args.scale, background=None if args.transparent else "#ffffff")
+        widget.export_png(args.png, scale=args.scale, dpi=args.dpi, background=None if args.transparent else "#ffffff")
         print(f"wrote {args.png}", file=sys.stderr)
     if args.svg:
         widget.export_svg(args.svg)

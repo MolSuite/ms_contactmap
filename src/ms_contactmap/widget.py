@@ -649,8 +649,9 @@ class InteractionDiagramWidget(QWidget):
     def fit(self) -> None:
         self._view.fit()
 
-    def export_png(self, path: str | Path, scale: float = 2.0, background: str | None = "#ffffff") -> Path:
-        return export_mod.export_png(self._scene, path, scale=scale, background=background)
+    def export_png(self, path: str | Path, scale: float = 2.0, background: str | None = "#ffffff",
+                   dpi: float | None = None) -> Path:
+        return export_mod.export_png(self._scene, path, scale=scale, background=background, dpi=dpi)
 
     def export_svg(self, path: str | Path) -> Path:
         return export_mod.export_svg(self._scene, path)
@@ -809,9 +810,8 @@ class InteractionDiagramWidget(QWidget):
         # transform, so the caches survive the whole gesture.  Set here rather
         # than in the items: ``export_svg`` draws the same scene into a vector
         # backend, where a cached item would come out as an embedded bitmap
-        # (``export`` switches them off for the duration).  Items that brought
-        # their own cache mode -- the ligand, which Qt already caches -- keep
-        # it, so the exports stay byte-for-byte what they were.
+        # (``export`` switches them off for the duration, the ligand's own
+        # Qt cache included).
         for item in self._scene.items():
             if item.cacheMode() == QGraphicsItem.CacheMode.NoCache:
                 item.setCacheMode(QGraphicsItem.CacheMode.DeviceCoordinateCache)

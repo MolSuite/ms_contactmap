@@ -30,6 +30,20 @@ a `.sdf`/`.mol`/`.mol2` path or an RDKit `Mol` with a conformer. Its heavy atoms
 must sit on the HETATM records (within 0.05 Å); a different pose raises
 `ValueError`.
 
+For a docked pose there is no complex file to hand over: pass the receptor and
+the pose, and the complex is assembled internally.
+
+```python
+from ms_contactmap import build_pose_diagram
+
+diagram = build_pose_diagram("receptor.pdbqt", "pose.sdf")  # or an RDKit Mol
+```
+
+The receptor may be `.pdb`, `.pdbqt` (AutoDock types are mapped to elements) or
+`.cif`. A `.pdb` pose has no bond orders: pass `smiles=` for them, or the
+legend warns that the chemistry is not reliable (the same happens with
+`build_diagram` when neither `smiles` nor `ligand` is given).
+
 Set `compute_exposure=False` when solvent accessibility is unnecessary. This
 does not change interaction detection.
 

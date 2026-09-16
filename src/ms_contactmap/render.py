@@ -171,6 +171,9 @@ LEGEND_SPHERE_RADIUS = 10.0
 LEGEND_SAMPLE_LENGTH = 28.0
 LEGEND_TEXT_OFFSET = 42.0
 LEGEND_FONT_PX = 15.0
+#: Legend row shown when nothing supplied the ligand's bond orders.
+LEGEND_BOND_ORDER_WARNING = "Bond orders undetermined: chemistry not reliable"
+LEGEND_WARNING_COLOR = QColor("#d97706")
 LEGEND_GAP = 42.0
 LEGEND_CROSS_COLOR = QColor("#ee0000")
 #: The reference legend draws the salt-bridge sample as a red-to-blue blend
@@ -1341,6 +1344,7 @@ class Legend(QGraphicsObject):
         classes = [c for c, _ in LEGEND_RESIDUE_ROWS]
         kinds = list(LEGEND_LINE_ROWS)
         halo = True
+        warn = diagram is not None and diagram.metadata.get("bond_orders_known") is False
         if diagram is not None and not full:
             present = {r.ref.residue_class for r in diagram.residues}
             drawn = {i.kind for i in diagram.interactions} - {"hydrophobic"}
@@ -1356,6 +1360,12 @@ class Legend(QGraphicsObject):
             lines.append(("halo", None, "Solvent exposure"))
 
         entries += lines
+        if warn:
+            entries.append(("warning", None, LEGEND_BOND_ORDER_WARNING))
+        self._text_width = max(
+            (QFontMetricsF(_font(LEGEND_FONT_PX)).horizontalAdvance(label) for *_, label in entries),
+            default=0.0,
+        )
         self._columns = [entries] if single_column and entries else _legend_columns(entries, rows)
         self.setZValue(Z_LEGEND)
 
@@ -1370,8 +1380,9 @@ class Legend(QGraphicsObject):
     def boundingRect(self) -> QRectF:
         cols = max(1, len(self._columns))
         rows = max((len(c) for c in self._columns), default=1)
+        width = max(260.0, LEGEND_TEXT_OFFSET + self._text_width + 16)
         return QRectF(-8, -LEGEND_SPHERE_RADIUS - 4,
-                      LEGEND_COL_PITCH * (cols - 1) + 260, LEGEND_ROW_PITCH * rows + 12)
+                      LEGEND_COL_PITCH * (cols - 1) + width, LEGEND_ROW_PITCH * rows + 12)
 
     def width(self) -> float:
         return self.boundingRect().width()
@@ -1401,6 +1412,20 @@ class Legend(QGraphicsObject):
                     painter.drawEllipse(QPointF(cx, y), r, r)
                 elif kind == "line":
                     _paint_line_sample(painter, x, y, key)
+                elif kind == "warning":
+                    r = LEGEND_SPHERE_RADIUS
+                    painter.setPen(Qt.PenStyle.NoPen)
+                    painter.setBrush(LEGEND_WARNING_COLOR)
+                    painter.drawPolygon(QPolygonF([
+                        QPointF(cx, y - r), QPointF(cx + r * 1.1, y + r * 0.85),
+                        QPointF(cx - r * 1.1, y + r * 0.85),
+                    ]))
+                    bang = _font(LEGEND_FONT_PX * 0.9)
+                    bang.setBold(True)
+                    painter.setFont(bang)
+                    painter.setPen(QColor("#ffffff"))
+                    painter.drawText(QRectF(cx - r, y - r * 0.55, 2 * r, r * 1.4),
+                                     Qt.AlignmentFlag.AlignCenter, "!")
 
                 painter.setPen(QColor("#101010"))
                 painter.setFont(font)

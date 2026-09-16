@@ -139,6 +139,8 @@ class LigandGeometry:
     #: Explicit donor-hydrogen coordinates from the input pose, keyed by the
     #: heavy-atom RDKit index.  Empty when the source omits hydrogens.
     donor_hydrogens: dict[int, list[tuple[float, float, float]]] = field(default_factory=dict)
+    #: ``False`` when no SMILES or ligand file supplied the bond orders.
+    bond_orders_known: bool = True
 
     @property
     def idx_to_serial(self) -> dict[int, int]:
@@ -614,6 +616,24 @@ def _mol_from_smiles(smiles, pdb_path, resname, heavy, hydrogen_by_heavy_serial)
     return mol
 
 
+def _mol_from_geometry(resname, heavy) -> Chem.Mol:
+    """Heavy-atom mol of the HETATM block with every perceived bond single.
+
+    Without a SMILES or a ligand file nothing states the bond orders, so none
+    are guessed: the drawing shows the connectivity only and the caller flags
+    the chemistry (and the H-bond roles derived from it) as unreliable.
+    """
+    block = "\n".join(a.line for a in heavy) + "\nEND\n"
+    mol = Chem.MolFromPDBBlock(block, sanitize=False, removeHs=False, proximityBonding=True)
+    if mol is None:
+        raise ValueError(f"RDKit could not read the HETATM block of {resname}")
+    # Full valence checks would reject a proximity bond too many (rdkit#9581);
+    # everything else sanitization does is still wanted.
+    Chem.SanitizeMol(mol, Chem.SanitizeFlags.SANITIZE_ALL ^ Chem.SanitizeFlags.SANITIZE_PROPERTIES)
+    mol.UpdatePropertyCache(strict=False)
+    return mol
+
+
 def _drop_bonds_absent_from(template: Chem.Mol, pdb_mol: Chem.Mol) -> Chem.Mol:
     """Remove the bonds proximity perception invented and the template lacks.
 
@@ -746,14 +766,16 @@ def load_ligand(
     * ``ligand`` -- an RDKit ``Mol`` or an ``.sdf``/``.mol``/``.mol2`` file of the
       same pose.  It already carries connectivity, bond orders and charges, so
       nothing is perceived: its atoms are matched to the HETATM records by
-      position.
+      position;
+    * neither -- bonds are perceived from geometry and left single, and
+      :attr:`LigandGeometry.bond_orders_known` is ``False``.
 
     ``chain``/``resnum`` disambiguate between copies; omit them to take the
     first copy in the file.  Raises :class:`ValueError` if the ligand is absent
     or does not match the HETATM block.
     """
-    if (smiles is None) == (ligand is None):
-        raise ValueError("pass exactly one of smiles or ligand")
+    if smiles is not None and ligand is not None:
+        raise ValueError("pass smiles or ligand, not both")
 
     records = _pick_copy(read_pdb_atoms(pdb_path), resname, chain, resnum)
     heavy = [a for a in records if a.element not in ("H", "D")]
@@ -786,8 +808,10 @@ def load_ligand(
         mol, file_hydrogens = _mol_from_ligand(ligand, heavy, resname)
         if file_hydrogens:
             hydrogen_by_heavy_serial = file_hydrogens
-    else:
+    elif smiles is not None:
         mol = _mol_from_smiles(smiles, pdb_path, resname, heavy, hydrogen_by_heavy_serial)
+    else:
+        mol = _mol_from_geometry(resname, heavy)
 
     conf = mol.GetConformer()
     coords_3d = [
@@ -826,6 +850,7 @@ def load_ligand(
         chain=first.chain,
         resnum=first.resnum,
         donor_hydrogens=donor_hydrogens,
+        bond_orders_known=smiles is not None or ligand is not None,
     )
 
 

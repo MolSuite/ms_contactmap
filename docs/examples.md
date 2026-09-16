@@ -17,7 +17,7 @@ diagram = build_diagram(
 )
 widget = InteractionDiagramWidget(diagram)
 widget.export_json("contacts.json")
-widget.export_png("contacts.png", scale=2.0)
+widget.export_png("contacts.png", dpi=300)  # print resolution; or scale=2.0
 widget.export_svg("contacts.svg")
 ```
 

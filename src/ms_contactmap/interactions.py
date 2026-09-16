@@ -183,7 +183,8 @@ def build_diagram(
     """Assemble one diagram with the native detector.
 
     The ligand chemistry comes from ``smiles`` or from ``ligand`` (an RDKit
-    ``Mol`` or an ``.sdf``/``.mol``/``.mol2`` file of the same pose); see
+    ``Mol`` or an ``.sdf``/``.mol``/``.mol2`` file of the same pose); with
+    neither, the bond orders are unknown and the legend says so.  See
     :func:`~ms_contactmap.chem.load_ligand`.  ``compute_exposure`` may be
     disabled for a fast analysis when solvent halos are not needed.
     """
@@ -274,5 +275,112 @@ def build_diagram(
                 "resnum": geom.resnum,
             },
             "exposure_computed": bool(compute_exposure),
+            "bond_orders_known": geom.bond_orders_known,
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Docked poses: receptor file + ligand chemistry, no complex PDB needed
+# ---------------------------------------------------------------------------
+
+#: AutoDock atom types that are not element symbols (PDBQT columns 78-79).
+_AUTODOCK_ELEMENTS = {"A": "C", "NA": "N", "OA": "O", "SA": "S", "HD": "H", "HS": "H", "NS": "N"}
+#: Residue name given to the pose inside the assembled complex.
+POSE_RESNAME = "UNL"
+
+
+def _receptor_records(receptor: Path) -> list[str]:
+    """First-model ATOM/HETATM lines of a PDB, PDBQT or mmCIF receptor.
+
+    PDBQT puts the AutoDock type where PDB keeps the element, so that tail is
+    replaced by the element symbol.  mmCIF goes through Biopython's PDB writer.
+    ponytail: PDB columns cap the receptor at 99,999 atoms and one-letter chains.
+    """
+    suffix = receptor.suffix.lower()
+    if suffix in (".cif", ".mmcif"):
+        import io
+
+        from Bio.PDB import PDBIO, MMCIFParser
+
+        writer = PDBIO()
+        writer.set_structure(MMCIFParser(QUIET=True).get_structure("receptor", str(receptor))[0])
+        buffer = io.StringIO()
+        writer.save(buffer)
+        text = buffer.getvalue()
+    else:
+        text = receptor.read_text(encoding="utf-8", errors="replace")
+    records = []
+    for line in text.splitlines():
+        if line.startswith("ENDMDL"):
+            break
+        if not line.startswith(("ATOM  ", "HETATM")):
+            continue
+        if suffix == ".pdbqt":
+            tail = line[66:].split()
+            kind = tail[-1] if tail else ""
+            element = _AUTODOCK_ELEMENTS.get(kind.upper(), kind[:2].capitalize())
+            line = f"{line[:66]:<76}{element:>2}"
+        records.append(line)
+    return records
+
+
+def build_pose_diagram(
+    receptor,
+    ligand,
+    name=None,
+    compute_exposure: bool = True,
+    smiles=None,
+) -> Diagram:
+    """Diagram of a docked pose from the receptor file and the pose itself.
+
+    ``receptor`` is a ``.pdb``, ``.pdbqt`` or ``.cif`` file; ``ligand`` is an
+    RDKit ``Mol`` with the pose conformer, or an ``.sdf``/``.mol``/``.mol2``
+    file, whose own bonds and hydrogens are kept.  A ``.pdb`` ligand carries no
+    bond orders: they come from ``smiles``, or stay unknown without it.  The complex that
+    :func:`build_diagram` reads is assembled here, in a temporary file, with
+    the pose as residue ``UNL`` 1 on a chain the receptor does not use.
+    """
+    import tempfile
+
+    from rdkit import Chem
+
+    from .chem import _read_ligand
+
+    receptor = Path(receptor)
+    from_pdb = not isinstance(ligand, Chem.Mol) and Path(ligand).suffix.lower() == ".pdb"
+    if from_pdb:
+        mol = Chem.MolFromPDBFile(str(ligand), sanitize=False, removeHs=False, proximityBonding=False)
+        if mol is None:
+            raise ValueError(f"RDKit could not read {ligand}")
+    elif smiles is not None:
+        raise ValueError("smiles is only used with a .pdb ligand")
+    else:
+        mol = _read_ligand(ligand)
+    if not mol.GetNumConformers():
+        raise ValueError("the ligand has no coordinates")
+    records = _receptor_records(receptor)
+    used_chains = {line[21] for line in records}
+    chain = next((c for c in "ZYXWVUTSRQPONMLKJIHGFEDCBA" if c not in used_chains), None)
+    if chain is None:
+        raise ValueError(f"{receptor.name}: no free chain id left for the ligand")
+    serial = max((int(line[6:11]) for line in records if line[6:11].strip().isdigit()), default=0)
+    conf = mol.GetConformer()
+    for atom in mol.GetAtoms():
+        serial += 1
+        p = conf.GetAtomPosition(atom.GetIdx())
+        symbol = atom.GetSymbol()
+        atom_name = f"{symbol}{atom.GetIdx() + 1}"[:4]
+        records.append(
+            f"HETATM{serial:>5} {atom_name:<4} {POSE_RESNAME:>3} {chain}{1:>4}    "
+            f"{p.x:8.3f}{p.y:8.3f}{p.z:8.3f}  1.00  0.00          {symbol.upper():>2}"
+        )
+    with tempfile.TemporaryDirectory(prefix="ms_contactmap_") as scratch:
+        complex_pdb = Path(scratch) / "complex.pdb"
+        complex_pdb.write_text("\n".join(records) + "\nEND\n", encoding="utf-8")
+        diagram = build_diagram(
+            complex_pdb, POSE_RESNAME, smiles, name=name or receptor.stem, chain=chain, resnum=1,
+            compute_exposure=compute_exposure, ligand=None if from_pdb else mol,
+        )
+    diagram.metadata["source_pdb"] = str(receptor.resolve())
+    return diagram

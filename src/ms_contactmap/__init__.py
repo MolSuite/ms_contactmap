@@ -17,6 +17,7 @@ _PUBLIC = {
     "Residue": ("model", "Residue"),
     "ResidueRef": ("model", "ResidueRef"),
     "build_diagram": ("interactions", "build_diagram"),
+    "build_pose_diagram": ("interactions", "build_pose_diagram"),
     "build_scene": ("render", "build_scene"),
     "document_from_dict": ("json_io", "document_from_dict"),
     "document_to_dict": ("json_io", "document_to_dict"),

@@ -12,25 +12,24 @@ from pathlib import Path
 from PySide6.QtCore import QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QImage, QPainter
 from PySide6.QtSvg import QSvgGenerator
-from PySide6.QtSvgWidgets import QGraphicsSvgItem
 from PySide6.QtWidgets import QApplication, QGraphicsItem, QGraphicsScene
 
 #: Blank border kept around the drawing, in scene units.
 EXPORT_MARGIN = 16.0
+#: Scene units per inch: one unit is one CSS pixel, as in the SVG export.
+SCENE_DPI = 96.0
 
 
 @contextmanager
 def _uncached(scene: QGraphicsScene):
-    """Draw ``scene`` without the pixmap caches the widget adds for dragging.
+    """Draw ``scene`` without pixmap caches, the ligand's included.
 
     Rendering through a ``DeviceCoordinateCache`` exports the cached bitmap
     instead of the item, which costs resolution in a scaled PNG and turns an
-    SVG into embedded raster.  ``QGraphicsSvgItem`` -- the ligand -- is left
-    alone: Qt caches it by default, so that is what the export has always
-    drawn, and removing it here would silently change every reference PNG.
+    SVG into embedded raster.  ``QGraphicsSvgItem`` (the ligand) is cached by
+    Qt itself, so it needs switching off like the rest.
     """
-    saved = [(item, item.cacheMode()) for item in scene.items()
-             if not isinstance(item, QGraphicsSvgItem)]
+    saved = [(item, item.cacheMode()) for item in scene.items()]
     for item, _ in saved:
         item.setCacheMode(QGraphicsItem.CacheMode.NoCache)
     try:
@@ -63,17 +62,26 @@ def export_png(
     path: str | Path,
     scale: float = 2.0,
     background: str | None = "#ffffff",
+    dpi: float | None = None,
 ) -> Path:
     """Render ``scene`` to a PNG at ``scale`` times its scene units.
 
+    ``dpi`` overrides ``scale`` with ``dpi / 96``, so the PNG keeps the SVG's
+    physical size (e.g. ``dpi=300`` for print).  Either way the file records
+    its resolution, so the PNG and the SVG open at the same size.
     ``background=None`` keeps the alpha channel transparent, which is how the
     Maestro reference images in ``data/`` are stored.
     """
     ensure_app()
+    if dpi is not None:
+        scale = dpi / SCENE_DPI
     rect = _target_rect(scene)
     size = QSize(max(1, round(rect.width() * scale)), max(1, round(rect.height() * scale)))
     image = QImage(size, QImage.Format_ARGB32_Premultiplied)
     image.fill(QColor(background) if background else Qt.transparent)
+    dots_per_meter = round(scale * SCENE_DPI / 0.0254)
+    image.setDotsPerMeterX(dots_per_meter)
+    image.setDotsPerMeterY(dots_per_meter)
 
     painter = QPainter(image)
     painter.setRenderHint(QPainter.Antialiasing, True)
