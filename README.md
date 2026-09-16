@@ -16,6 +16,7 @@ pip install ms_contactmap
 ```bash
 ms_contactmap --help
 ms_contactmap complex.pdb --ligand LIG --smiles "CCO" --json contacts.json
+ms_contactmap complex.pdb --ligand LIG --ligand-file pose.sdf --json contacts.json
 ```
 
 Reference structures and ligand catalogs in `data/` are development and test

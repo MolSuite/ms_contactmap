@@ -25,6 +25,11 @@ ms_contactmap complex.pdb \
   --png contacts.png
 ```
 
+`--smiles` supplies the bond orders for the ligand's HETATM block. When the same
+pose exists as `.sdf`, `.mol` or `.mol2`, pass `--ligand-file pose.sdf` instead:
+its bonds and hydrogens are used as they are, and its atoms are matched to the
+HETATM records by position.
+
 Open a saved analysis without detecting the interactions again:
 
 ```bash

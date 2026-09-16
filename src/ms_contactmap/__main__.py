@@ -1,6 +1,7 @@
 """Command line entry point.
 
     python -m ms_contactmap data/4ps5.pdb --ligand 2TA --smiles "..." --json out.json
+    python -m ms_contactmap complex.pdb --ligand UNL --ligand-file pose.sdf --png out.png
     python -m ms_contactmap --from-json out.json --png out.png
     python -m ms_contactmap --from-json out.json --show
 """
@@ -19,7 +20,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--ligand", help="ligand residue name, e.g. 2TA")
     parser.add_argument("--chain", default=None, help="restrict to this chain")
     parser.add_argument("--resnum", type=int, default=None, help="restrict to this residue number")
-    parser.add_argument("--smiles", default=None, help="ligand SMILES (required with a PDB input)")
+    chemistry = parser.add_mutually_exclusive_group()
+    chemistry.add_argument("--smiles", default=None, help="ligand SMILES, for bond orders")
+    chemistry.add_argument("--ligand-file", type=Path, default=None,
+                           help="the same pose as .sdf/.mol/.mol2; its bonds are used as they are")
     parser.add_argument("--no-exposure", action="store_true",
                         help="skip SASA halos for a faster first analysis")
     parser.add_argument("--json", dest="json_output", type=Path, default=None,
@@ -39,8 +43,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("pass a PDB input or --from-json")
     if not args.from_json and not args.ligand:
         parser.error("--ligand is required with a PDB input")
-    if not args.from_json and not args.smiles:
-        parser.error("--smiles is required with a PDB input")
+    if not args.from_json and not (args.smiles or args.ligand_file):
+        parser.error("--smiles or --ligand-file is required with a PDB input")
 
     from .export import ensure_app
     app = ensure_app()
@@ -60,6 +64,7 @@ def main(argv: list[str] | None = None) -> int:
             resnum=args.resnum,
             name=args.pdb.stem,
             compute_exposure=not args.no_exposure,
+            ligand=args.ligand_file,
         )
         # Batch exports need a solved scene immediately.  A show-only command
         # displays the window first and solves in the responsive Qt thread.

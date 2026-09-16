@@ -172,19 +172,23 @@ def exposed_atoms(pdb_path, geom) -> dict[int, float]:
 def build_diagram(
     pdb_path,
     resname,
-    smiles,
+    smiles=None,
     name=None,
     chain=None,
     resnum=None,
     compute_exposure: bool = True,
+    *,
+    ligand=None,
 ) -> Diagram:
     """Assemble one diagram with the native detector.
 
-    ``compute_exposure`` may be disabled for a fast analysis when solvent halos
-    are not needed.
+    The ligand chemistry comes from ``smiles`` or from ``ligand`` (an RDKit
+    ``Mol`` or an ``.sdf``/``.mol``/``.mol2`` file of the same pose); see
+    :func:`~ms_contactmap.chem.load_ligand`.  ``compute_exposure`` may be
+    disabled for a fast analysis when solvent halos are not needed.
     """
     pdb_path = Path(pdb_path)
-    geom = load_ligand(pdb_path, resname, smiles, chain=chain, resnum=resnum)
+    geom = load_ligand(pdb_path, resname, smiles, chain=chain, resnum=resnum, ligand=ligand)
     atoms = read_pdb_atoms(pdb_path)
     serial_to_atom = {a.serial: a for a in atoms}
 

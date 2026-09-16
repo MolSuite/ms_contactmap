@@ -16,6 +16,7 @@ import math
 import sys
 from collections import Counter
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
 from rdkit import Chem
@@ -539,16 +540,220 @@ def _normalize_phosphate_oxyanions(mol: Chem.Mol) -> None:
         mol.UpdatePropertyCache(strict=False)
 
 
-def load_ligand(pdb_path, resname, smiles, chain=None, resnum=None) -> LigandGeometry:
-    """Build the ligand mol for ``resname`` in ``pdb_path`` using ``smiles``.
+#: Largest distance at which a ligand-file atom and a HETATM record count as the
+#: same atom.  Both come from one pose; the slack only absorbs the PDB's
+#: three-decimal rounding.
+_SAME_ATOM_TOL = 0.05
 
-    ``chain``/``resnum`` disambiguate between copies; omit them to take the
-    first copy in the file.  Raises :class:`ValueError` if the ligand is absent
-    or if the SMILES does not match the HETATM block.
-    """
+
+def _mol_from_smiles(smiles, pdb_path, resname, heavy, hydrogen_by_heavy_serial) -> Chem.Mol:
+    """Heavy-atom mol of the HETATM block with bond orders from ``smiles``."""
     template = Chem.MolFromSmiles(smiles)
     if template is None:
         raise ValueError(f"SMILES for {resname} does not parse: {smiles!r}")
+
+    block = "\n".join(a.line for a in heavy) + "\nEND\n"
+    pdb_mol = Chem.MolFromPDBBlock(
+        block, sanitize=False, removeHs=False, proximityBonding=True
+    )
+    if pdb_mol is None:
+        raise ValueError(f"RDKit could not read the HETATM block of {resname}")
+
+    # Heavy-atom composition, compared before the match is attempted:
+    # AssignBondOrdersFromTemplate matches the *template into* the PDB mol, so a
+    # template that is merely a fragment of the ligand succeeds quietly and
+    # leaves the rest of the molecule with guessed single bonds.
+    pdb_formula = _formula(a.element for a in heavy)
+    smiles_formula = _formula(a.GetSymbol() for a in template.GetAtoms())
+    mismatch = (
+        f"SMILES does not match the {resname} HETATM block in {pdb_path}: "
+        f"SMILES is {smiles_formula} ({template.GetNumAtoms()} heavy atoms), "
+        f"PDB block is {pdb_formula} ({len(heavy)} heavy atoms)"
+    )
+    if smiles_formula != pdb_formula:
+        raise ValueError(mismatch)
+    pdb_mol = _drop_bonds_absent_from(template, pdb_mol)
+    try:
+        mol = AllChem.AssignBondOrdersFromTemplate(template, pdb_mol)
+    except Exception as exc:  # noqa: BLE001 -- RDKit raises bare ValueError/RuntimeError
+        raise ValueError(f"{mismatch}. RDKit said: {exc}") from exc
+
+    # The template match is a substructure match, so it can succeed on a
+    # fragment.  Atom-count equality is what makes serial -> index safe.
+    if mol.GetNumAtoms() != pdb_mol.GetNumAtoms():
+        raise ValueError(
+            f"AssignBondOrdersFromTemplate changed the atom count for {resname} "
+            f"({pdb_mol.GetNumAtoms()} -> {mol.GetNumAtoms()}); serial mapping "
+            f"would be wrong"
+        )
+
+    _normalize_phosphate_oxyanions(mol)
+    Chem.SanitizeMol(mol)
+    # Preserve any explicit pose hydrogens for exact D-H...A angles before the
+    # drawing molecule is reduced to heavy atoms.  PDB serials survive
+    # RemoveHs on their heavy neighbours and provide a stable remapping.
+    full_conf = mol.GetConformer()
+    for atom in mol.GetAtoms():
+        if atom.GetAtomicNum() != 1 or atom.GetDegree() != 1:
+            continue
+        neighbour = atom.GetNeighbors()[0]
+        info = neighbour.GetPDBResidueInfo()
+        if info is None:
+            continue
+        point = full_conf.GetAtomPosition(atom.GetIdx())
+        hydrogen_by_heavy_serial.setdefault(info.GetSerialNumber(), []).append(
+            (float(point.x), float(point.y), float(point.z))
+        )
+    mol = Chem.RemoveHs(mol)
+    if mol.GetNumAtoms() != len(heavy):
+        raise ValueError(
+            f"{resname}: {len(heavy)} heavy HETATM records became "
+            f"{mol.GetNumAtoms()} atoms; the SMILES describes a different molecule"
+        )
+
+    return mol
+
+
+def _drop_bonds_absent_from(template: Chem.Mol, pdb_mol: Chem.Mol) -> Chem.Mol:
+    """Remove the bonds proximity perception invented and the template lacks.
+
+    RDKit bonds any pair closer than their covalent radii + 0.45 A, so the S and
+    P of an adenosine phosphosulfate (2.51 A apart through the bridging O) get a
+    bond and the sulfur ends up with valence 7 (rdkit#9581).  The template knows
+    the real graph: match it with every bond single, keep what it maps onto.
+    ponytail: first match only; a phantom bond can only stand in for a template
+    bond between the same two elements, so the choice has not mattered yet.
+    """
+    if pdb_mol.GetNumBonds() <= template.GetNumBonds():
+        return pdb_mol
+    query = Chem.Mol(template)
+    for bond in query.GetBonds():
+        bond.SetBondType(Chem.BondType.SINGLE)
+        bond.SetIsAromatic(False)
+    for atom in query.GetAtoms():
+        atom.SetIsAromatic(False)
+        atom.SetFormalCharge(0)
+    pdb_mol.UpdatePropertyCache(strict=False)
+    match = pdb_mol.GetSubstructMatch(query)
+    if not match:
+        return pdb_mol  # AssignBondOrdersFromTemplate reports the mismatch
+    kept = {
+        frozenset((match[b.GetBeginAtomIdx()], match[b.GetEndAtomIdx()]))
+        for b in query.GetBonds()
+    }
+    editable = Chem.RWMol(pdb_mol)
+    for bond in pdb_mol.GetBonds():
+        begin, end = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
+        if frozenset((begin, end)) not in kept:
+            editable.RemoveBond(begin, end)
+    return editable.GetMol()
+
+
+def _read_ligand(ligand) -> Chem.Mol:
+    if isinstance(ligand, Chem.Mol):
+        mol = Chem.Mol(ligand)
+        try:
+            Chem.SanitizeMol(mol)
+        except Exception as exc:  # noqa: BLE001 -- RDKit raises bare ValueError/RuntimeError
+            raise ValueError(f"ligand molecule does not sanitize: {exc}") from exc
+        return mol
+    path = Path(ligand)
+    suffix = path.suffix.lower()
+    if suffix in (".sdf", ".sd"):
+        mol = next(iter(Chem.SDMolSupplier(str(path), removeHs=False)), None)
+    elif suffix == ".mol":
+        mol = Chem.MolFromMolFile(str(path), removeHs=False)
+    elif suffix == ".mol2":
+        mol = Chem.MolFromMol2File(str(path), removeHs=False)
+    else:
+        raise ValueError(f"unsupported ligand file {path.name}: use .sdf, .mol or .mol2")
+    if mol is None:
+        raise ValueError(f"RDKit could not read the ligand in {path}")
+    return mol
+
+
+def _mol_from_ligand(ligand, heavy, resname):
+    """Heavy-atom mol from a pose with its own bonds, addressed by HETATM serial.
+
+    Returns the mol and the pose hydrogens keyed by the serial of their heavy
+    atom.  Coordinates are taken from the HETATM records so the detector and
+    the mol share one frame.
+    """
+    full = _read_ligand(ligand)
+    if full.GetNumConformers() == 0:
+        raise ValueError(f"{resname}: the ligand has no coordinates to match")
+    full_conf = full.GetConformer()
+    hydrogens_by_source: dict[int, list[tuple[float, float, float]]] = {}
+    for atom in full.GetAtoms():
+        atom.SetIntProp("_cm_source", atom.GetIdx())
+        if atom.GetAtomicNum() == 1 and atom.GetDegree() == 1:
+            point = full_conf.GetAtomPosition(atom.GetIdx())
+            hydrogens_by_source.setdefault(atom.GetNeighbors()[0].GetIdx(), []).append(
+                (float(point.x), float(point.y), float(point.z))
+            )
+    mol = Chem.RemoveHs(full)
+    if mol.GetNumAtoms() != len(heavy):
+        raise ValueError(
+            f"{resname}: the ligand has {mol.GetNumAtoms()} heavy atoms, "
+            f"the HETATM block {len(heavy)}"
+        )
+
+    xyz = mol.GetConformer().GetPositions()
+    pdb_xyz = np.array([(a.x, a.y, a.z) for a in heavy], dtype=float)
+    distances = np.linalg.norm(xyz[:, None, :] - pdb_xyz[None, :, :], axis=2)
+    nearest = distances.argmin(axis=1)
+    far = distances[np.arange(len(nearest)), nearest] > _SAME_ATOM_TOL
+    if far.any() or len(set(nearest.tolist())) != len(heavy):
+        raise ValueError(
+            f"{resname}: the ligand coordinates do not match the HETATM block "
+            f"(different pose or frame?)"
+        )
+
+    conf = mol.GetConformer()
+    hydrogens: dict[int, list[tuple[float, float, float]]] = {}
+    for idx, record_index in enumerate(nearest.tolist()):
+        record = heavy[record_index]
+        atom = mol.GetAtomWithIdx(idx)
+        if atom.GetSymbol().upper() != record.element.upper():
+            raise ValueError(
+                f"{resname}: ligand atom {idx} is {atom.GetSymbol()} but the HETATM "
+                f"record at its position (serial {record.serial}) is {record.element}"
+            )
+        info = Chem.AtomPDBResidueInfo()
+        info.SetName(record.name)
+        info.SetSerialNumber(record.serial)
+        info.SetResidueName(record.resname)
+        info.SetResidueNumber(record.resnum)
+        info.SetChainId(record.chain)
+        info.SetIsHeteroAtom(record.hetatm)
+        atom.SetMonomerInfo(info)
+        conf.SetAtomPosition(idx, (record.x, record.y, record.z))
+        points = hydrogens_by_source.get(atom.GetIntProp("_cm_source"))
+        if points:
+            hydrogens[record.serial] = points
+    return mol, hydrogens
+
+
+def load_ligand(
+    pdb_path, resname, smiles=None, chain=None, resnum=None, *, ligand=None
+) -> LigandGeometry:
+    """Build the ligand mol for ``resname`` in ``pdb_path``.
+
+    The bond orders come from exactly one of:
+
+    * ``smiles`` -- a template matched onto the HETATM block, whose bonds are
+      perceived from geometry;
+    * ``ligand`` -- an RDKit ``Mol`` or an ``.sdf``/``.mol``/``.mol2`` file of the
+      same pose.  It already carries connectivity, bond orders and charges, so
+      nothing is perceived: its atoms are matched to the HETATM records by
+      position.
+
+    ``chain``/``resnum`` disambiguate between copies; omit them to take the
+    first copy in the file.  Raises :class:`ValueError` if the ligand is absent
+    or does not match the HETATM block.
+    """
+    if (smiles is None) == (ligand is None):
+        raise ValueError("pass exactly one of smiles or ligand")
 
     records = _pick_copy(read_pdb_atoms(pdb_path), resname, chain, resnum)
     heavy = [a for a in records if a.element not in ("H", "D")]
@@ -577,63 +782,12 @@ def load_ligand(pdb_path, resname, smiles, chain=None, resnum=None) -> LigandGeo
                 (hydrogen.x, hydrogen.y, hydrogen.z)
             )
 
-    block = "\n".join(a.line for a in heavy) + "\nEND\n"
-    pdb_mol = Chem.MolFromPDBBlock(
-        block, sanitize=False, removeHs=False, proximityBonding=True
-    )
-    if pdb_mol is None:
-        raise ValueError(f"RDKit could not read the HETATM block of {resname}")
-
-    # Heavy-atom composition, compared before the match is attempted:
-    # AssignBondOrdersFromTemplate matches the *template into* the PDB mol, so a
-    # template that is merely a fragment of the ligand succeeds quietly and
-    # leaves the rest of the molecule with guessed single bonds.
-    pdb_formula = _formula(a.element for a in heavy)
-    smiles_formula = _formula(a.GetSymbol() for a in template.GetAtoms())
-    mismatch = (
-        f"SMILES does not match the {resname} HETATM block in {pdb_path}: "
-        f"SMILES is {smiles_formula} ({template.GetNumAtoms()} heavy atoms), "
-        f"PDB block is {pdb_formula} ({len(heavy)} heavy atoms)"
-    )
-    if smiles_formula != pdb_formula:
-        raise ValueError(mismatch)
-    try:
-        mol = AllChem.AssignBondOrdersFromTemplate(template, pdb_mol)
-    except Exception as exc:  # noqa: BLE001 -- RDKit raises bare ValueError/RuntimeError
-        raise ValueError(f"{mismatch}. RDKit said: {exc}") from exc
-
-    # The template match is a substructure match, so it can succeed on a
-    # fragment.  Atom-count equality is what makes serial -> index safe.
-    if mol.GetNumAtoms() != pdb_mol.GetNumAtoms():
-        raise ValueError(
-            f"AssignBondOrdersFromTemplate changed the atom count for {resname} "
-            f"({pdb_mol.GetNumAtoms()} -> {mol.GetNumAtoms()}); serial mapping "
-            f"would be wrong"
-        )
-
-    _normalize_phosphate_oxyanions(mol)
-    Chem.SanitizeMol(mol)
-    # Preserve any explicit pose hydrogens for exact D-H...A angles before the
-    # drawing molecule is reduced to heavy atoms.  PDB serials survive
-    # RemoveHs on their heavy neighbours and provide a stable remapping.
-    full_conf = mol.GetConformer()
-    for atom in mol.GetAtoms():
-        if atom.GetAtomicNum() != 1 or atom.GetDegree() != 1:
-            continue
-        heavy = atom.GetNeighbors()[0]
-        info = heavy.GetPDBResidueInfo()
-        if info is None:
-            continue
-        point = full_conf.GetAtomPosition(atom.GetIdx())
-        hydrogen_by_heavy_serial.setdefault(info.GetSerialNumber(), []).append(
-            (float(point.x), float(point.y), float(point.z))
-        )
-    mol = Chem.RemoveHs(mol)
-    if mol.GetNumAtoms() != len(heavy):
-        raise ValueError(
-            f"{resname}: {len(heavy)} heavy HETATM records became "
-            f"{mol.GetNumAtoms()} atoms; the SMILES describes a different molecule"
-        )
+    if ligand is not None:
+        mol, file_hydrogens = _mol_from_ligand(ligand, heavy, resname)
+        if file_hydrogens:
+            hydrogen_by_heavy_serial = file_hydrogens
+    else:
+        mol = _mol_from_smiles(smiles, pdb_path, resname, heavy, hydrogen_by_heavy_serial)
 
     conf = mol.GetConformer()
     coords_3d = [

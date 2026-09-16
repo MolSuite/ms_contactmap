@@ -25,6 +25,11 @@ for interaction in diagram.interactions:
     print(interaction.kind, interaction.residue_key, interaction.distance)
 ```
 
+Pass `ligand=` instead of `smiles=` to take the chemistry from the pose itself:
+a `.sdf`/`.mol`/`.mol2` path or an RDKit `Mol` with a conformer. Its heavy atoms
+must sit on the HETATM records (within 0.05 Å); a different pose raises
+`ValueError`.
+
 Set `compute_exposure=False` when solvent accessibility is unnecessary. This
 does not change interaction detection.
 
