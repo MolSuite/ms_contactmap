@@ -514,30 +514,58 @@ def _depictions(mol: Chem.Mol, resname: str, limit: int = _MAX_DEPICTIONS) -> li
     return [xy for _, _, xy in keep]
 
 
-def _normalize_phosphate_oxyanions(mol: Chem.Mol) -> None:
-    """Use the physiological oxyanion form for terminal phosphate oxygens.
+#: Acidic hydroxyls that are ionised at pH 7: the O-H of a carboxylic,
+#: phosphoric/phosphonic or sulfonic acid.  The bridging oxygens of an ester
+#: carry no H and never match.
+_ACID_OH = Chem.MolFromSmarts(
+    "[OX2H1,OX1H0-;$(O-[CX3]=O),$(O-[PX4]=O),$(O-[SX4](=O)=O)]"
+)
 
-    CCD SMILES commonly encode the neutral acid so their formula is portable.
-    In a protein interaction diagram that silently creates implicit O-H bonds,
-    turns phosphate oxygens into H-bond donors and even prints ``OH`` beside a
-    Mg-bound nucleotide.  A terminal, single-bonded oxygen on phosphorus is the
-    ionisable site; bridging P-O-P/P-O-C atoms and phosphoryl P=O atoms are
-    untouched.
+
+def _ionise_acids(mol: Chem.Mol, protonated: set[int] | None) -> None:
+    """Draw acidic hydroxyls in the form the detector treats them as.
+
+    ``protonated`` holds the PDB serials of the oxygens the pose gives a
+    hydrogen, or is ``None`` when the pose carries no hydrogens at all.  With
+    no hydrogens the protonation is unknown and the pH-7 form is used: the
+    acid is ionised, as CCD SMILES and crystal structures leave it neutral
+    only for portability.  With hydrogens the pose is the answer: an acid O
+    that has its H stays an O-H (an H-bond donor, not a salt bridge), and one
+    without it is the anion.
     """
+    def has_pose_h(atom: Chem.Atom) -> bool:
+        info = atom.GetPDBResidueInfo()
+        return protonated is not None and info is not None \
+            and info.GetSerialNumber() in protonated
+
     changed = False
-    for phosphorus in (atom for atom in mol.GetAtoms() if atom.GetAtomicNum() == 15):
-        for bond in phosphorus.GetBonds():
-            oxygen = bond.GetOtherAtom(phosphorus)
-            if (
-                oxygen.GetAtomicNum() != 8
-                or oxygen.GetDegree() != 1
-                or bond.GetBondType() != Chem.BondType.SINGLE
-            ):
-                continue
-            oxygen.SetFormalCharge(-1)
+    for (idx,) in mol.GetSubstructMatches(_ACID_OH):
+        oxygen = mol.GetAtomWithIdx(idx)
+        if has_pose_h(oxygen):
+            continue
+        # Which O the template made the C=O is arbitrary.  If the pose put its
+        # H on that one, it is the O-H: move the double bond here instead.
+        center = next(n for n in oxygen.GetNeighbors() if n.GetAtomicNum() != 1)
+        swap = next((b for b in center.GetBonds()
+                     if b.GetBondType() == Chem.BondType.DOUBLE
+                     and has_pose_h(b.GetOtherAtom(center))), None)
+        if swap is not None:
+            hydroxyl = swap.GetOtherAtom(center)
+            swap.SetBondType(Chem.BondType.SINGLE)
+            mol.GetBondBetweenAtoms(idx, center.GetIdx()).SetBondType(Chem.BondType.DOUBLE)
+            hydroxyl.SetNumExplicitHs(1)
+            hydroxyl.SetNoImplicit(True)
+            oxygen.SetFormalCharge(0)
             oxygen.SetNumExplicitHs(0)
             oxygen.SetNoImplicit(True)
             changed = True
+            continue
+        # One charge per group: a carboxylic acid with both O as OH does not
+        # exist, but a phosphate has two ionisable oxygens and takes both.
+        oxygen.SetFormalCharge(-1)
+        oxygen.SetNumExplicitHs(0)
+        oxygen.SetNoImplicit(True)
+        changed = True
     if changed:
         mol.UpdatePropertyCache(strict=False)
 
@@ -589,7 +617,6 @@ def _mol_from_smiles(smiles, pdb_path, resname, heavy, hydrogen_by_heavy_serial)
             f"would be wrong"
         )
 
-    _normalize_phosphate_oxyanions(mol)
     Chem.SanitizeMol(mol)
     # Preserve any explicit pose hydrogens for exact D-H...A angles before the
     # drawing molecule is reduced to heavy atoms.  PDB serials survive
@@ -812,6 +839,9 @@ def load_ligand(
         mol = _mol_from_smiles(smiles, pdb_path, resname, heavy, hydrogen_by_heavy_serial)
     else:
         mol = _mol_from_geometry(resname, heavy)
+    if smiles is not None or ligand is not None:
+        _ionise_acids(mol, set(hydrogen_by_heavy_serial) or None)
+        Chem.SanitizeMol(mol)
 
     conf = mol.GetConformer()
     coords_3d = [

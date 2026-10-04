@@ -104,3 +104,38 @@ def test_4uwh_strict_hbond_geometry_removes_weak_contacts():
     assert all(row.protein_distance <= 3.0 for row in water_2260)
     directions = {row.residue_key: row.protein_is_donor for row in water_2260}
     assert directions == {"A:644:ASP": False, "A:670:TYR": True}
+
+
+def test_pose_hydrogen_decides_acid_protonation(tmp_path):
+    """No H in the pose: carboxylates.  An H on an acid O: an O-H."""
+    smiles = "c1ccc(cc1)c2c(c(c(o2)c3ccccc3)C(=O)O)C(=O)O"
+    plain = build_diagram(ROOT / "data" / "2gfk.pdb", "VII", smiles,
+                          chain="A", resnum=1410)
+    assert sum(a.GetFormalCharge() == -1 for a in plain.mol.GetAtoms()) == 2
+
+    # H on O20, which the SMILES template draws as the C=O.
+    lines = []
+    for line in (ROOT / "data" / "2gfk.pdb").read_text().splitlines():
+        lines.append(line)
+        if line.startswith("HETATM 4031"):
+            lines.append("HETATM 9999  H20 VII A1410      11.700  29.500  36.600"
+                         "  1.00 24.55           H  ")
+    pose = tmp_path / "2gfk_h.pdb"
+    pose.write_text("\n".join(lines) + "\n")
+    diagram = build_diagram(pose, "VII", smiles, chain="A", resnum=1410)
+    by_name = {a.GetPDBResidueInfo().GetName().strip(): a
+               for a in diagram.mol.GetAtoms()}
+    assert by_name["O20"].GetTotalNumHs() == 1
+    assert by_name["O20"].GetFormalCharge() == by_name["O21"].GetFormalCharge() == 0
+    assert by_name["O23"].GetFormalCharge() == -1
+
+
+def test_metal_bound_histidine_is_not_a_cation():
+    """2gfk: every HIS near the carboxylates holds a zinc, so none salt-bridges."""
+    diagram = build_diagram(ROOT / "data" / "2gfk.pdb", "VII",
+                            "c1ccc(cc1)c2c(c(c(o2)c3ccccc3)C(=O)O)C(=O)O",
+                            chain="A", resnum=1410)
+    zinc_his = {leg.partner_key for leg in diagram.metal_legs if "HIS" in leg.partner_key}
+    assert {"A:116:HIS", "A:118:HIS", "A:196:HIS", "A:263:HIS"} <= zinc_his
+    assert not any(i.kind in ("salt_bridge", "pi_cation") and i.residue_key in zinc_his
+                   for i in diagram.interactions)

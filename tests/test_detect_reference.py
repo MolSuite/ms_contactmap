@@ -26,8 +26,10 @@ LIGANDS = json.loads((ROOT / "data" / "ligands.json").read_text())
 #: pdb -> ligand resname, kind histogram, metal legs, coordination numbers.
 EXPECTED = {
     ("2gfk", "VII"): (
+        # The four HIS that bind the zincs are not cations: no salt bridge
+        # and no pi-cation for them.
         {"hbond": 1, "hydrophobic": 4, "metal_coordination": 2,
-         "pi_cation": 1, "pi_stacking": 1, "salt_bridge": 5},
+         "pi_stacking": 1, "water_bridge": 1},
         6, {"A:401:ZN": 4, "A:402:ZN": 4},
     ),
     ("4ps5", "2TA"): ({"hbond": 2, "hydrophobic": 10}, 0, {}),

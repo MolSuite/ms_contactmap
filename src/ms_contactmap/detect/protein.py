@@ -172,6 +172,11 @@ CHARGED_GROUPS: dict[str, tuple[str, tuple[str, ...]]] = {
     "GLU": ("anion", ("OE1", "OE2")),
 }
 
+#: A cation Group with an atom this close to a metal is coordinating it, not
+#: charged: the metal holds the lone pair a proton would need.  Covers the
+#: Zn/Mg--N first shell (2.0--2.3 A) with room for a poorly refined pose.
+_METAL_BOUND_MAX = 2.6  # angstrom
+
 #: Ring planarity gate for :func:`_ring_group`.  A genuine aromatic ring is
 #: flat to a few hundredths of an angstrom; anything past this is either a
 #: badly modelled sidechain or a bug feeding the wrong atoms in, and drawing a
@@ -313,6 +318,12 @@ def _groups(atoms: list[PdbAtom], coords: dict[int, np.ndarray]) -> list[Group]:
     for a in atoms:
         by_residue.setdefault(a.res_id, {})[a.name.strip().upper()] = a.serial
 
+    metals = [coords[a.serial] for a in atoms if _is_metal(a)]
+
+    def metal_bound(serials: tuple[int, ...]) -> bool:
+        return any(np.linalg.norm(coords[s] - m) <= _METAL_BOUND_MAX
+                   for s in serials for m in metals)
+
     groups: list[Group] = []
     for res_id, by_name in by_residue.items():
         # res_id alone doesn't carry the resname; recover it from any atom.
@@ -322,7 +333,7 @@ def _groups(atoms: list[PdbAtom], coords: dict[int, np.ndarray]) -> list[Group]:
         if kind_atoms is not None:
             kind, names = kind_atoms
             picked = _atoms_by_name(names, by_name)
-            if picked is not None:
+            if picked is not None and not (kind == "cation" and metal_bound(picked)):
                 groups.append(Group(kind=kind, atoms=picked))
 
         ring_names = AROMATIC_RINGS.get(resname)
