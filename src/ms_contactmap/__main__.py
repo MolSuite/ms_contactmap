@@ -12,6 +12,22 @@ import sys
 from pathlib import Path
 
 
+def _use_own_settings(widget, *, apply: bool) -> None:
+    """Standalone, the window is its own host: it applies and saves MS-ContactMap's settings.
+
+    An embedding app (AMDockVS) never comes through here; it edits the same file from
+    its settings dialog.  Batch exports ignore it too, so scripts stay reproducible.
+    """
+    from .settings import load_view_settings, save_view_settings
+
+    if apply:
+        try:
+            widget.apply_view_settings(load_view_settings())
+        except ValueError:  # retired values: start from the built-in look
+            pass
+    widget.set_configure_action("Save as default", lambda: save_view_settings(widget.view_settings()))
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="ms_contactmap", description=__doc__)
     parser.add_argument("pdb", nargs="?", type=Path, help="PDB file of the complex")
@@ -92,6 +108,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.show:
         widget.resize(1100, 780)
         widget.setWindowTitle(f"{diagram.name} - {diagram.ligand_name}")
+        _use_own_settings(widget, apply=not args.from_json)  # a saved document keeps its own look
         widget.show()
         if widget.layout_result is None:
             widget.set_diagram_async(diagram)

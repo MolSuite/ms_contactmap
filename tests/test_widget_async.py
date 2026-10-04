@@ -5,7 +5,7 @@ import os
 import time
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QEventLoop, QTimer
+from PySide6.QtCore import QEventLoop, Qt, QTimer
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QGraphicsScene, QToolButton
 from rdkit import Chem
@@ -163,3 +163,40 @@ def test_resize_coalesces_refits_and_overflow_stays_inside_toolbar():
     assert overflow.icon().isNull()
     assert widget._toolbar.contentsMargins().right() == 4
     widget.close()
+
+
+def test_dragging_a_line_bends_it_and_double_click_resets():
+    from ms_contactmap.layout import solve_layout
+
+    diagram = _diagram()
+    widget = InteractionDiagramWidget()
+    widget.resize(900, 600)
+    widget.show()
+    widget.set_layout(diagram, solve_layout(diagram))
+    QApplication.processEvents()
+    route = widget._build.routes._routes[0]
+    start, end = route.path.pointAtPercent(0.0), route.path.pointAtPercent(1.0)
+    mid = route.path.pointAtPercent(0.5)
+    length = ((end.x() - start.x()) ** 2 + (end.y() - start.y()) ** 2) ** 0.5
+    normal = type(mid)(-(end.y() - start.y()) / length, (end.x() - start.x()) / length)
+    view, positions = widget._view, dict(widget._positions)
+    port = view.viewport()
+    grab, drop = view.mapFromScene(mid), view.mapFromScene(mid + normal * 20.0)
+
+    QTest.mousePress(port, Qt.LeftButton, Qt.NoModifier, grab)
+    QTest.mouseMove(port, drop)
+    QTest.mouseRelease(port, Qt.LeftButton, Qt.NoModifier, drop)
+    QApplication.processEvents()
+    assert list(widget._bends) == [route.bend_key]
+    assert widget._bends[route.bend_key] > 0
+    assert widget._positions == positions
+
+    widget._rebuild()
+    bent = widget._build.routes._routes[0]
+    apex = bent.path.pointAtPercent(0.5)
+    target = mid + normal * 20.0
+    assert abs(apex.x() - target.x()) < 3 and abs(apex.y() - target.y()) < 3
+
+    QTest.mouseDClick(port, Qt.LeftButton, Qt.NoModifier, view.mapFromScene(apex))
+    QApplication.processEvents()
+    assert widget._bends == {}
