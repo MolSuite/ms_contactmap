@@ -73,18 +73,19 @@ _HALOGENS = frozenset({"Cl", "Br", "I"})
 # for ligands nobody protonated rather than the primary answer.
 # ---------------------------------------------------------------------------
 
-#: Groups anionic at physiological pH.  The hydroxyl forms (``OX2H1``) are
-#: listed alongside the deprotonated ones because a SMILES is usually drawn
-#: neutral: a carboxylic acid at pH 7 is a carboxylate whatever the file says.
+#: Anionic groups.  Only the ionised forms match: :func:`chem.load_ligand`
+#: already turned the acids the pose leaves unprotonated (or all of them, for a
+#: pose without hydrogens) into their pH-7 anions, so an O-H still standing is
+#: a real acid -- an H-bond donor, not half of a salt bridge.
 _ANION_SMARTS = {
-    "carboxylate": "[CX3](=O)[OX1H0-,OX2H1]",
-    "phosphate": "[PX4](=O)([OX1-,OX2H1])[OX1-,OX2H1]",
+    "carboxylate": "[CX3](=O)[OX1H0-]",
+    "phosphate": "[PX4](=O)([OX1-,OX2H1])[OX1-]",
     # A phosphate mono- or diester keeps only one ionisable oxygen -- the others
     # are bridging -- and its first pKa is still near 1, so the alpha and beta
     # phosphates of a nucleotide triphosphate are as anionic as the terminal
     # one.  Without this the largest anion in the reference set goes unseen.
-    "phosphate_ester": "[PX4](=[OX1])[OX1-,OX2H1]",
-    "sulfonate": "[SX4](=O)(=O)[OX1-,OX2H1]",
+    "phosphate_ester": "[PX4](=[OX1])[OX1-]",
+    "sulfonate": "[SX4](=O)(=O)[OX1-]",
     "tetrazolate": "c1nnn[nH,n-]1",
 }
 

@@ -721,7 +721,9 @@ def _anchor_weights(diagram: Diagram, keys: list[str], n_atoms: int) -> np.ndarr
         for bucket in buckets:
             if bucket is None:
                 continue
-            for idx in inter.ligand_atoms:
+            atoms = (inter.ligand_atoms if inter.anchor_atom is None
+                     else (inter.anchor_atom,))
+            for idx in atoms:
                 if 0 <= idx < n_atoms:
                     bucket[idx] = bucket.get(idx, 0) + 1
     for row, key in enumerate(keys):

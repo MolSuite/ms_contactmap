@@ -286,6 +286,12 @@ def detect_interactions(pdb_path, geom, serial_to_atom: dict[int, PdbAtom]):
                 continue
             via = _key(water)
 
+        anchor_atom = None
+        if hit.kind == "salt_bridge" and len(hit.ligand_atoms) > 1:
+            protein_xyz = np.array([(serial_to_atom[s].x, serial_to_atom[s].y,
+                                     serial_to_atom[s].z) for s in hit.protein_atoms])
+            anchor_atom = min(hit.ligand_atoms, key=lambda a: float(
+                np.min(np.linalg.norm(protein_xyz - ligand_xyz[a], axis=1))))
         interactions.append(Interaction(
             kind=hit.kind,
             residue_key=residue_key,
@@ -297,6 +303,7 @@ def detect_interactions(pdb_path, geom, serial_to_atom: dict[int, PdbAtom]):
             angle=hit.angle,
             protein_distance=hit.partner_distance,
             protein_is_donor=hit.protein_is_donor,
+            anchor_atom=anchor_atom,
         ))
     return _refine(interactions), metal_legs, coordination, skipped
 

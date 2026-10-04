@@ -15,6 +15,7 @@ from PySide6.QtCore import QObject, QPointF, QRunnable, Qt, QThreadPool, QTimer,
 from PySide6.QtGui import QAction, QActionGroup, QIcon, QKeySequence, QPainter
 from PySide6.QtWidgets import (
     QApplication,
+    QFileDialog,
     QGraphicsItem,
     QGraphicsScene,
     QGraphicsView,
@@ -30,6 +31,9 @@ from . import export as export_mod
 from . import render
 from .layout import LayoutResult, solve_layout
 from .model import Diagram
+from .style import (DEFAULT_LEGEND_POSITION, DEFAULT_LEGEND_ROWS, EXPOSURE_MODES, GLYPH_MODES,
+                    LEGEND_POSITIONS, LEGEND_ROW_OPTIONS, METAL_MODES, PALETTES, SURFACE_MODES,
+                    DiagramStyle)
 
 #: How much one wheel notch scales the view.
 ZOOM_STEP = 1.15
@@ -42,9 +46,6 @@ RESIZE_FIT_DELAY_MS = 75
 
 #: One click of the rotate buttons.
 ROTATION_STEP = 15.0
-
-LEGEND_POSITIONS = ("left", "right", "top", "bottom")
-LEGEND_ROW_OPTIONS = (2, 3, 4)
 
 
 def _centroid(points: list[tuple[float, float]]) -> tuple[float, float]:
@@ -90,6 +91,35 @@ class DiagramView(QGraphicsView):
         self._resize_fit_timer.setSingleShot(True)
         self._resize_fit_timer.setInterval(RESIZE_FIT_DELAY_MS)
         self._resize_fit_timer.timeout.connect(self._fit_after_resize)
+        # Hover details live on the viewport, not in the scene, so they never
+        # reach an export.
+        self._info = QLabel(self.viewport())
+        self._info.setStyleSheet(
+            "QLabel { background: rgba(255, 255, 255, 235); color: #26303a;"
+            " border: 1px solid #9aa4ae; border-radius: 6px; padding: 6px 10px; }")
+        self._info.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self._info.hide()
+        #: Viewport corner for the info box, as (vertical, horizontal).
+        self.info_corner = ("bottom", "right")
+
+    def show_info(self, text: str) -> None:
+        """Show ``text`` in the info box, or hide the box when it is empty."""
+        if not text:
+            self._info.hide()
+            return
+        self._info.setText(text)
+        self._info.adjustSize()
+        self._place_info()
+        self._info.show()
+
+    def _place_info(self) -> None:
+        margin = 10
+        area = self.viewport().rect()
+        size = self._info.size()
+        vertical, horizontal = self.info_corner
+        x = area.right() - size.width() - margin if horizontal == "right" else margin
+        y = area.bottom() - size.height() - margin if vertical == "bottom" else margin
+        self._info.move(x, y)
 
     def showEvent(self, event) -> None:  # noqa: N802
         super().showEvent(event)
@@ -99,6 +129,8 @@ class DiagramView(QGraphicsView):
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
+        if self._info.isVisible():
+            self._place_info()
         if self._auto_fit:
             self._resize_fit_timer.start()
 
@@ -192,8 +224,11 @@ class InteractionDiagramWidget(QWidget):
         self._layout: LayoutResult | None = None
         self._positions: dict[str, tuple[float, float]] = {}
         self._ligand_coords: list[tuple[float, float]] = []
-        self._legend_position = "left"
-        self._legend_rows = 3
+        self._legend_position = DEFAULT_LEGEND_POSITION
+        self._legend_rows = DEFAULT_LEGEND_ROWS
+        self._look: DiagramStyle | None = DiagramStyle()
+        #: Hand-bent lines: route bend key -> bow as a fraction of the chord.
+        self._bends: dict[str, float] = {}
         self._layout_actions: list[QAction] = []
         self._solving = False
         self._solve_serial = 0
@@ -274,7 +309,7 @@ class InteractionDiagramWidget(QWidget):
         self._trail_action.setToolTip(
             "Show solvent exposure as an arc over the exposed face instead "
             "of a halo around the atom  (E)")
-        self._trail_action.toggled.connect(self._apply_layers)
+        self._trail_action.toggled.connect(self._on_trail_toggled)
 
         for text, shortcut, slot in (
             ("↺", "[", lambda: self.rotate_selection(-ROTATION_STEP)),
@@ -289,6 +324,8 @@ class InteractionDiagramWidget(QWidget):
             ("Reshuffle", "R", self.reshuffle),
             ("Recalculate", "Ctrl+R", self.reset_layout),
             ("Fit", "F", self.fit),
+            (None, None, None),
+            ("Export SVG…", "Ctrl+E", self._ask_export_svg),
         ):
             if text is None:
                 self._toolbar.addSeparator()
@@ -323,6 +360,7 @@ class InteractionDiagramWidget(QWidget):
         if isinstance(reshuffle_button, QToolButton):
             reshuffle_button.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
 
+        self._build_style_menu()
         self._build_legend_menu()
         self._toolbar.addSeparator()
         self._toolbar.addWidget(self._selection_label)
@@ -371,6 +409,119 @@ class InteractionDiagramWidget(QWidget):
         button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self._toolbar.addWidget(button)
         self.addAction(self._legend_menu.menuAction())
+
+    def _build_style_menu(self) -> None:
+        """Appearance options.  Each one only redraws; none re-solves the layout."""
+        menu = QMenu("Style", self)
+        self._classic_action = menu.addAction("Classic look")
+        self._classic_action.setCheckable(True)
+        self._classic_action.toggled.connect(
+            lambda checked: self.set_look(None if checked else DiagramStyle())
+        )
+        menu.addSeparator()
+        self._style_menus: list[QMenu | QAction] = []
+        self._style_actions: dict[tuple[str, object], QAction] = {}
+        for field, title, options in (
+            ("glyphs", "Glyphs", [(v, v.capitalize()) for v in GLYPH_MODES]),
+            ("metals", "Metals", [(v, v.capitalize()) for v in METAL_MODES]),
+            ("coloring", "Colour", [("nature", "By nature"), ("residue", "By residue"),
+                                    ("blend", "Blend (experimental)")]),
+            ("palette", "Palette", [(v, v.capitalize()) for v in PALETTES]),
+            ("surface", "Pocket surface", [(v, v.capitalize()) for v in SURFACE_MODES]),
+            ("exposure", "Solvent exposure", [(v, v.capitalize()) for v in EXPOSURE_MODES]),
+        ):
+            submenu = menu.addMenu(title)
+            group = QActionGroup(submenu)
+            for value, label in options:
+                action = submenu.addAction(label)
+                action.setCheckable(True)
+                action.triggered.connect(
+                    lambda checked=False, f=field, v=value: self._set_style_field(f, v))
+                group.addAction(action)
+                self._style_actions[(field, value)] = action
+            self._style_menus.append(submenu)
+        hydrophobic = menu.addAction("Hydrophobic contacts")
+        hydrophobic.setCheckable(True)
+        hydrophobic.toggled.connect(
+            lambda checked: self._set_style_field("hydrophobic_lines", checked))
+        self._style_actions[("hydrophobic_lines", True)] = hydrophobic
+        self._style_menus.append(hydrophobic)
+        menu.addSeparator()
+        self._configure_action = menu.addAction("Settings…")
+        self._configure_action.setVisible(False)  # shown once a host wires it
+        self._sync_style_actions()
+
+        button = QToolButton(self._toolbar)
+        button.setText("Style")
+        button.setToolTip("Glyphs, colours, surface and exposure")
+        button.setMenu(menu)
+        button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._toolbar.addWidget(button)
+        self.addAction(menu.menuAction())
+
+    @property
+    def look(self) -> DiagramStyle | None:
+        """Current appearance; ``None`` is the classic look."""
+        return self._look
+
+    def set_look(self, look: DiagramStyle | None) -> None:
+        if look == self._look:
+            return
+        self._look = look
+        self._sync_style_actions()
+        self._rebuild()
+
+    def view_settings(self) -> dict:
+        """What a host persists as "how new diagrams look": the style plus the legend."""
+        return {
+            **(self._look or DiagramStyle()).to_dict(),
+            "legend_position": self._legend_position,
+            "legend_rows": self._legend_rows,
+        }
+
+    def apply_view_settings(self, values: dict) -> None:
+        """Restyle from a host's configuration; keys this widget does not know are ignored."""
+        self.set_look(DiagramStyle.from_dict(values))
+        self.set_legend_position(values.get("legend_position", self._legend_position))
+        self.set_legend_rows(values.get("legend_rows", self._legend_rows))
+
+    def set_configure_action(self, text: str, callback) -> None:
+        """Show the Style menu's configuration entry.
+
+        The widget stores nothing itself: whoever hosts it owns the settings and so
+        decides what the entry does.  The standalone app saves the current look as
+        its default; an embedding app opens its own settings instead.
+        """
+        self._configure_action.setText(text)
+        self._configure_action.triggered.connect(lambda _checked=False: callback())
+        self._configure_action.setVisible(True)
+
+    def _set_style_field(self, field: str, value) -> None:
+        if self._look is not None and getattr(self._look, field) != value:
+            self.set_look(self._look.with_(**{field: value}))
+
+    def _sync_style_actions(self) -> None:
+        look = self._look
+        for (field, value), action in self._style_actions.items():
+            action.blockSignals(True)
+            if look is not None:
+                action.setChecked(getattr(look, field) == value)
+            action.blockSignals(False)
+        for item in self._style_menus:
+            item.setEnabled(look is not None)
+        self._classic_action.blockSignals(True)
+        self._classic_action.setChecked(look is None)
+        self._classic_action.blockSignals(False)
+        if look is not None:
+            self._trail_action.blockSignals(True)
+            self._trail_action.setChecked(look.exposure == "trail")
+            self._trail_action.blockSignals(False)
+
+    def _on_trail_toggled(self, checked: bool) -> None:
+        if self._look is None:
+            self._apply_layers()
+        else:
+            self._set_style_field("exposure", "trail" if checked else "arc")
 
     def _configure_overflow_button(self) -> None:
         """Keep the native hidden-actions control centred and off the edge."""
@@ -494,6 +645,8 @@ class InteractionDiagramWidget(QWidget):
         This is also the zero-analysis path used by cached JSON: hand in the
         saved positions and drawing itself takes only milliseconds.
         """
+        if diagram is not self._diagram:
+            self._bends = {}
         self._diagram = diagram
         self._layout = layout
         self._positions = dict(layout.positions)
@@ -518,16 +671,21 @@ class InteractionDiagramWidget(QWidget):
         widget.set_legend_rows(int(view.get("legend_rows", 3)))
         widget._backbone_action.setChecked(bool(view.get("backbone", True)))
         widget._trail_action.setChecked(view.get("exposure_style", "halo") == "trail")
+        style = view.get("style", {})
+        widget.set_look(None if style is None else DiagramStyle.from_dict(style))
         if layout is None:
             widget.set_diagram(diagram)
         else:
             widget.set_layout(diagram, layout)
+            widget._bends = {k: float(v) for k, v in view.get("bends", {}).items()}
+            widget._rebuild()
         return widget
 
     def reset_layout(self) -> None:
         """Throw away manual edits and re-solve from scratch."""
         if self._diagram is not None and self._layout is not None:
             self._residue_variant = 0
+            self._bends = {}
             self.set_diagram_async(
                 self._diagram,
                 projection=self._layout.projection,
@@ -621,11 +779,17 @@ class InteractionDiagramWidget(QWidget):
         moved = {key} | {
             leg.partner_key for leg in self._diagram.metal_legs if leg.metal_key == key
         }
+        hub = _centroid(self._ligand_coords)
         for partner in moved - {key}:
             if partner in self._positions:
-                self._positions[partner] = _turn(
-                    self._positions[partner], center, math.radians(degrees)
-                )
+                old = self._positions[partner]
+                x, y = _turn(old, center, math.radians(degrees))
+                # Keep the partner in its row around the ligand: swung about
+                # the metal alone it drifts out behind the front residues.
+                ring = math.hypot(old[0] - hub[0], old[1] - hub[1])
+                reach = math.hypot(x - hub[0], y - hub[1]) or 1.0
+                self._positions[partner] = (hub[0] + (x - hub[0]) * ring / reach,
+                                            hub[1] + (y - hub[1]) * ring / reach)
         self._settle(moved)
 
     def orbit_residue(self, key: str, degrees: float) -> None:
@@ -656,6 +820,14 @@ class InteractionDiagramWidget(QWidget):
     def export_svg(self, path: str | Path) -> Path:
         return export_mod.export_svg(self._scene, path)
 
+    def _ask_export_svg(self) -> None:
+        if self._diagram is None:
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export SVG", f"{self._diagram.name or 'diagram'}.svg", "SVG (*.svg)")
+        if path:
+            self.export_svg(path if path.lower().endswith(".svg") else f"{path}.svg")
+
     def export_json(self, path: str | Path) -> Path:
         """Save analysis plus the current, possibly hand-edited layout."""
         if self._diagram is None or self._layout is None:
@@ -671,6 +843,8 @@ class InteractionDiagramWidget(QWidget):
                 "legend_rows": self._legend_rows,
                 "backbone": self._backbone_action.isChecked(),
                 "exposure_style": "trail" if self._trail_action.isChecked() else "halo",
+                "style": None if self._look is None else self._look.to_dict(),
+                "bends": dict(self._bends),
             },
         )
 
@@ -785,6 +959,15 @@ class InteractionDiagramWidget(QWidget):
             return
         self._rebuild()
 
+    def _on_bend_changed(self, key: str, bow: float | None) -> None:
+        if bow is not None:
+            # The dragged line is already drawn where it was dropped.
+            self._bends[key] = bow
+        elif self._bends.pop(key, None) is not None:
+            # Not from inside the routes item's own event handler: the
+            # rebuild deletes it.
+            QTimer.singleShot(0, self._rebuild)
+
     def _rebuild(self) -> None:
         if self._diagram is None or self._layout is None:
             return
@@ -800,8 +983,20 @@ class InteractionDiagramWidget(QWidget):
             scene=self._scene,
             legend_position=self._legend_position,
             legend_rows=self._legend_rows,
+            look=self._look,
+            bends=self._bends,
         )
         build = self._build
+        # Opposite the legend: a bottom corner for a side legend, the far
+        # vertical side for a top/bottom one.
+        self._view.info_corner = {
+            "left": ("bottom", "right"), "right": ("bottom", "left"),
+            "top": ("bottom", "right"), "bottom": ("top", "right"),
+        }[self._legend_position]
+        self._view.show_info("")
+        if build.routes is not None:
+            build.routes.hotChanged.connect(self._view.show_info)
+            build.routes.bendChanged.connect(self._on_bend_changed)
         self._apply_layers()
         # A droplet costs ~0.6 ms to paint (four stacked shadow strokes over a
         # 58-vertex polygon), and FullViewportUpdate repaints every one of them
@@ -826,7 +1021,7 @@ class InteractionDiagramWidget(QWidget):
             return
         if build.backbone is not None:
             build.backbone.setVisible(self._backbone_action.isChecked())
-        if build.halos is not None:
+        if build.halos is not None and self._look is None:
             build.halos.set_mode("trail" if self._trail_action.isChecked() else "halo")
 
     def _on_selection_changed(self) -> None:

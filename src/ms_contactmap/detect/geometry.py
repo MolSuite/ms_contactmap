@@ -90,8 +90,10 @@ METAL_EXPECTED_COORDINATION = {"ZN": 4, "MG": 6}
 #: the drawing wants more or less of the second shell.
 METAL_LIGAND_CUTOFF = 6.0
 
-#: Jiang et al. (2005), the survey this whole predicate is shaped by.
-WATER_BRIDGE_MIN_DIST = 2.5
+#: Jiang et al. (2005), the survey this whole predicate is shaped by.  The
+#: floor sits below their 2.5 A: a charged carboxylate and a metal-bound water
+#: make a short, strong hydrogen bond (2gfk: O21--HOH1551 at 2.41 A).
+WATER_BRIDGE_MIN_DIST = 2.3
 WATER_BRIDGE_MAX_DIST = 3.0
 #: Angle subtended at the bridging oxygen by its two partners.
 WATER_OMEGA_MIN = 75.0

@@ -364,6 +364,37 @@ def test_pinning():
     check("the rest re-settled around it", others > 1.0, f"largest shift = {others:.0f} px")
 
 
+def test_pin_on_ligand_is_pushed_out():
+    """A pin dropped on the ligand (a metal rotation swings partners there) still clears it."""
+    diagram = make_diagram(14, n_context=4, seed=17)
+    base = solve_layout(diagram, glyph_radius=RADIUS)
+    victim = [r.key for r in diagram.residues][3]
+    moved = dict(base.positions)
+    moved[victim] = tuple(np.mean(base.ligand_coords, axis=0))
+    result = solve_layout(
+        diagram, glyph_radius=RADIUS, seed_positions=moved, pinned={victim},
+        orientation=(base.rotation, base.mirror),
+    )
+    lig = np.array(result.ligand_coords)
+    clearance = hull_signed_distance(np.array([result.positions[victim]]),
+                                     lig[_convex_hull(lig)])[0]
+    check("pinned glyph left the ligand hull", clearance > 0.0, f"= {clearance:.1f} px")
+
+
+def test_group_anchor_is_view_independent():
+    """A salt bridge leaves from the atom detection chose, wherever the residue sits."""
+    from rdkit import Chem
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtCore import QPointF  # noqa: E402
+    from ms_contactmap.render import _ligand_anchor  # noqa: E402
+
+    mol = Chem.MolFromSmiles("CC(=O)[O-]")
+    inter = types.SimpleNamespace(kind="salt_bridge", ligand_atoms=(2, 3), anchor_atom=3)
+    coords = {i: QPointF(i * 10.0, 0.0) for i in range(4)}
+    check("salt bridge anchored on the recorded O",
+          _ligand_anchor(inter, coords)[0] == "atom:3")
+
+
 def test_vertex_angle():
     """The closed-form polygon rotation really does land corners on partners."""
     print("coordination polygon")
