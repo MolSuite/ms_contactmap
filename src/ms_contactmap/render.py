@@ -891,8 +891,7 @@ def _arrow_head(tip: QPointF, angle: float) -> QPolygonF:
                       QPointF(back.x() - nx, back.y() - ny)])
 
 
-def _ligand_anchor(inter, atom_coords: dict[int, QPointF],
-                   target: QPointF) -> tuple[str, QPointF] | None:
+def _ligand_anchor(inter, atom_coords: dict[int, QPointF]) -> tuple[str, QPointF] | None:
     """Where this interaction leaves the ligand, and a stable id for that spot."""
     anchors = [(i, atom_coords[i]) for i in inter.ligand_atoms if i in atom_coords]
     if not anchors:
@@ -902,15 +901,13 @@ def _ligand_anchor(inter, atom_coords: dict[int, QPointF],
         cx = sum(p.x() for _, p in anchors) / len(anchors)
         cy = sum(p.y() for _, p in anchors) / len(anchors)
         return f"ring:{anchors[0][0]}", QPointF(cx, cy)
-    # Detection hands back the whole charged/coordinating group (a carboxylate is
-    # C + both O), and the centroid of that group sits in empty space between
-    # the atoms -- which is exactly the misalignment seen on the 2gfk salt
-    # bridges.  Maestro starts the line on one atom, so pick the group atom
-    # facing the residue.
-    idx, point = min(
-        anchors,
-        key=lambda ip: (ip[1].x() - target.x()) ** 2 + (ip[1].y() - target.y()) ** 2,
-    )
+    # A charged group interacts as a whole, but its centroid sits in empty
+    # space; the line leaves from the group atom nearest the protein in 3D,
+    # which the detector recorded.  Fixed by the structure, not the view.
+    chosen = dict(anchors).get(inter.anchor_atom)
+    if chosen is not None:
+        return f"atom:{inter.anchor_atom}", chosen
+    idx, point = min(anchors, key=lambda ip: ip[0])
     return f"atom:{idx}", point
 
 
@@ -920,7 +917,7 @@ def _coordination_legs(diagram: Diagram, key: str, center: QPointF,
     """Every partner in metal ``key``'s sphere: (leg id, where its line comes from)."""
     legs: list[tuple[str, QPointF]] = []
     for inter in diagram.interactions_of(key):
-        got = _ligand_anchor(inter, atom_coords, center)
+        got = _ligand_anchor(inter, atom_coords)
         if got is not None:
             legs.append(got)
     for leg in diagram.metal_legs:
@@ -1006,7 +1003,7 @@ def _routes(diagram: Diagram, positions: dict[str, QPointF],
         shape = shapes.get(inter.residue_key)
         if target is None or shape is None:
             continue
-        got = _ligand_anchor(inter, atom_coords, target)
+        got = _ligand_anchor(inter, atom_coords)
         if got is None:
             continue
         leg_id, atom = got

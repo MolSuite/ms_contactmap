@@ -499,6 +499,60 @@ def _metal_route_crossings(problem, p: np.ndarray, diagram: Diagram) -> int:
     return total
 
 
+def _legalize_pins(problem, fixed: dict[str, tuple[float, float]] | None,
+                   pinned: set[str]) -> dict[str, tuple[float, float]] | None:
+    """Push pinned spots out of the ligand and off each other.
+
+    A pin says where the user wants a glyph, not that it may sit on the
+    ligand: rotating a metal swings its partners wherever the arc takes them,
+    and the settling never moves a pinned glyph again.  So the hard
+    clearances are applied here, once, before the pins become constraints.
+    """
+    if not fixed or not pinned:
+        return fixed
+    idx = [i for i, key in enumerate(problem.keys) if key in pinned and key in fixed]
+    if not idx:
+        return fixed
+    pts = np.array([fixed[problem.keys[i]] for i in idx], dtype=float)
+    local = problem.water_mask[idx] | problem.metal_mask[idx]
+    clearance = problem.ligand_clearance[idx]
+    radii = problem.radii[idx]
+    center = problem.ligand.mean(axis=0)
+    overlapping = np.zeros(len(idx), dtype=bool)
+    for _ in range(40):
+        for mask, measure in ((~local, problem._hull_distance),
+                              (local, problem._molecule_distance)):
+            if not np.any(mask):
+                continue
+            d, direction = measure(pts[mask])
+            # Only a glyph that actually overlaps the ligand is moved, and then
+            # to the normal standoff; a pin merely close to it is respected.
+            overlapping[mask] |= d < radii[mask] - 0.5
+            need = np.where(overlapping[mask], np.maximum(0.0, clearance[mask] - d), 0.0)
+            # The smoothed gradient vanishes deep inside (a pin on the ligand
+            # centre); fall back to the radial direction there.
+            radial = pts[mask] - center
+            radial[np.hypot(*radial.T) < 1e-6] = (1.0, 0.0)
+            weak = np.hypot(*direction.T) < 0.2
+            direction[weak] = radial[weak]
+            direction /= np.hypot(*direction.T)[:, None]
+            # Small steps: the fallback direction is not the hull normal.
+            pts[mask] += np.minimum(need + 0.5 * (need > 0), 12.0)[:, None] * direction
+        for a in range(len(idx)):
+            for b in range(a + 1, len(idx)):
+                delta = pts[b] - pts[a]
+                distance = max(float(np.hypot(*delta)), 1e-8)
+                floor = float(problem.pair_floor[idx[a], idx[b]])
+                if distance < floor:
+                    push = delta / distance * (floor - distance) * 0.5
+                    pts[a] -= push
+                    pts[b] += push
+    out = dict(fixed)
+    for i, point in zip(idx, pts):
+        out[problem.keys[i]] = (float(point[0]), float(point[1]))
+    return out
+
+
 def _one_candidate(diagram: Diagram, view: list[tuple[float, float]], projection: int,
                    rotation: float, mirror: bool, glyph_radius: float, weights,
                    variant: int, seed_positions, pinned: set[str], max_swaps: int,
@@ -510,6 +564,7 @@ def _one_candidate(diagram: Diagram, view: list[tuple[float, float]], projection
         diagram, glyph_radius=glyph_radius, weights=weights,
         rotation=rotation, mirror=mirror, _cache=cache,
     )
+    seed_positions = _legalize_pins(problem, seed_positions, pinned)
     p, target = _place_discrete(
         problem, cache, diagram, glyph_radius, variant, seed_positions, pinned
     )

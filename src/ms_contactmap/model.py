@@ -301,6 +301,9 @@ class Interaction:
     #: Donor direction of the protein-water leg.  Only meaningful for a water
     #: bridge; ``False`` means the water donates to the protein atom.
     protein_is_donor: bool | None = None
+    #: For a group contact (a salt bridge): the group atom nearest the protein
+    #: in 3D, which is where the drawn line leaves the ligand.
+    anchor_atom: int | None = None
 
     @property
     def style(self) -> InteractionStyle:
