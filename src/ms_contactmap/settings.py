@@ -7,10 +7,13 @@ dialog, so both contexts share one configuration.  Pure Python: no Qt.
 from __future__ import annotations
 
 import json
+import os
 import tomllib
 from pathlib import Path
 
-SETTINGS_PATH = Path.home() / ".config" / "MS-ContactMap" / "config.toml"
+# The MolSuite home, shared with the other ms_* packages.  Resolved here because this
+# package depends on none of them.
+SETTINGS_PATH = Path(os.environ.get("MOLSUITE_HOME") or Path.home() / ".molsuite").expanduser() / "contactmap.toml"
 
 
 def load_view_settings() -> dict:
