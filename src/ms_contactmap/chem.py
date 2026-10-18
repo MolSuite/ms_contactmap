@@ -704,6 +704,11 @@ def _read_ligand(ligand) -> Chem.Mol:
         except Exception as exc:  # noqa: BLE001 -- RDKit raises bare ValueError/RuntimeError
             raise ValueError(f"ligand molecule does not sanitize: {exc}") from exc
         return mol
+    if isinstance(ligand, bytes):  # an SDF/MOL record, as a docking hands it over
+        mol = Chem.MolFromMolBlock(ligand.decode("utf-8", "replace"), removeHs=False)
+        if mol is None:
+            raise ValueError("RDKit could not read the ligand record")
+        return mol
     path = Path(ligand)
     suffix = path.suffix.lower()
     if suffix in (".sdf", ".sd"):

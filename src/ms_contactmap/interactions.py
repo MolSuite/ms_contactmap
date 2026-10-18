@@ -290,26 +290,30 @@ _AUTODOCK_ELEMENTS = {"A": "C", "NA": "N", "OA": "O", "SA": "S", "HD": "H", "HS"
 POSE_RESNAME = "UNL"
 
 
-def _receptor_records(receptor: Path) -> list[str]:
-    """First-model ATOM/HETATM lines of a PDB, PDBQT or mmCIF receptor.
+def _receptor_records(receptor, suffix: str = "") -> list[str]:
+    """First-model ATOM/HETATM lines of a PDB, PDBQT or mmCIF receptor: a file, or its
+    bytes with `suffix` naming the format (".pdb", ".pdbqt", ".cif").
 
     PDBQT puts the AutoDock type where PDB keeps the element, so that tail is
     replaced by the element symbol.  mmCIF goes through Biopython's PDB writer.
     ponytail: PDB columns cap the receptor at 99,999 atoms and one-letter chains.
     """
-    suffix = receptor.suffix.lower()
+    in_memory = isinstance(receptor, bytes)
+    data = receptor if in_memory else Path(receptor).read_bytes()
+    suffix = (suffix or (".pdb" if in_memory else Path(receptor).suffix)).lower()
     if suffix in (".cif", ".mmcif"):
         import io
 
         from Bio.PDB import PDBIO, MMCIFParser
 
         writer = PDBIO()
-        writer.set_structure(MMCIFParser(QUIET=True).get_structure("receptor", str(receptor))[0])
+        structure = MMCIFParser(QUIET=True).get_structure("receptor", io.StringIO(data.decode("utf-8", "replace")))
+        writer.set_structure(structure[0])
         buffer = io.StringIO()
         writer.save(buffer)
         text = buffer.getvalue()
     else:
-        text = receptor.read_text(encoding="utf-8", errors="replace")
+        text = data.decode("utf-8", errors="replace")
     records = []
     for line in text.splitlines():
         if line.startswith("ENDMDL"):
@@ -331,11 +335,13 @@ def build_pose_diagram(
     name=None,
     compute_exposure: bool = True,
     smiles=None,
+    receptor_format: str = "pdb",
 ) -> Diagram:
     """Diagram of a docked pose from the receptor file and the pose itself.
 
-    ``receptor`` is a ``.pdb``, ``.pdbqt`` or ``.cif`` file; ``ligand`` is an
-    RDKit ``Mol`` with the pose conformer, or an ``.sdf``/``.mol``/``.mol2``
+    ``receptor`` is a ``.pdb``, ``.pdbqt`` or ``.cif`` file, or its bytes with
+    ``receptor_format`` naming which; ``ligand`` is an RDKit ``Mol`` with the pose
+    conformer, the bytes of an SDF/MOL record, or an ``.sdf``/``.mol``/``.mol2``
     file, whose own bonds and hydrogens are kept.  A ``.pdb`` ligand carries no
     bond orders: they come from ``smiles``, or stay unknown without it.  The complex that
     :func:`build_diagram` reads is assembled here, in a temporary file, with
@@ -347,8 +353,9 @@ def build_pose_diagram(
 
     from .chem import _read_ligand
 
-    receptor = Path(receptor)
-    from_pdb = not isinstance(ligand, Chem.Mol) and Path(ligand).suffix.lower() == ".pdb"
+    in_memory = isinstance(receptor, bytes)
+    receptor = receptor if in_memory else Path(receptor)
+    from_pdb = not isinstance(ligand, (Chem.Mol, bytes)) and Path(ligand).suffix.lower() == ".pdb"
     if from_pdb:
         mol = Chem.MolFromPDBFile(str(ligand), sanitize=False, removeHs=False, proximityBonding=False)
         if mol is None:
@@ -359,11 +366,11 @@ def build_pose_diagram(
         mol = _read_ligand(ligand)
     if not mol.GetNumConformers():
         raise ValueError("the ligand has no coordinates")
-    records = _receptor_records(receptor)
+    records = _receptor_records(receptor, f".{receptor_format.lstrip('.')}" if in_memory else "")
     used_chains = {line[21] for line in records}
     chain = next((c for c in "ZYXWVUTSRQPONMLKJIHGFEDCBA" if c not in used_chains), None)
     if chain is None:
-        raise ValueError(f"{receptor.name}: no free chain id left for the ligand")
+        raise ValueError(f"{'receptor' if in_memory else receptor.name}: no free chain id left for the ligand")
     serial = max((int(line[6:11]) for line in records if line[6:11].strip().isdigit()), default=0)
     conf = mol.GetConformer()
     for atom in mol.GetAtoms():
@@ -379,8 +386,11 @@ def build_pose_diagram(
         complex_pdb = Path(scratch) / "complex.pdb"
         complex_pdb.write_text("\n".join(records) + "\nEND\n", encoding="utf-8")
         diagram = build_diagram(
-            complex_pdb, POSE_RESNAME, smiles, name=name or receptor.stem, chain=chain, resnum=1,
+            complex_pdb, POSE_RESNAME, smiles, name=name or ("receptor" if in_memory else receptor.stem), chain=chain, resnum=1,
             compute_exposure=compute_exposure, ligand=None if from_pdb else mol,
         )
-    diagram.metadata["source_pdb"] = str(receptor.resolve())
+    if in_memory:  # the complex it names was a temporary file
+        diagram.metadata.pop("source_pdb", None)
+    else:
+        diagram.metadata["source_pdb"] = str(receptor.resolve())
     return diagram
