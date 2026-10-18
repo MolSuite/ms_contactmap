@@ -200,3 +200,16 @@ def test_dragging_a_line_bends_it_and_double_click_resets():
     QTest.mouseDClick(port, Qt.LeftButton, Qt.NoModifier, view.mapFromScene(apex))
     QApplication.processEvents()
     assert widget._bends == {}
+
+
+def test_selecting_a_glyph_announces_its_residue_once():
+    widget = InteractionDiagramWidget()
+    widget.set_diagram(_diagram())
+    announced = []
+    widget.residueSelected.connect(announced.append)
+    glyph = next(item for item in widget._scene.items() if getattr(item, "residue_key", None) == "A:10:SER")
+    glyph.setSelected(True)
+    glyph.setSelected(True)
+    widget._scene.clearSelection()
+    assert announced == ["A:10:SER", ""]
+    widget.deleteLater()
