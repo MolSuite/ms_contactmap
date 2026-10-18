@@ -75,6 +75,10 @@ class DiagramView(QGraphicsView):
         self.setDragMode(QGraphicsView.RubberBandDrag)
         self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
         self.setBackgroundBrush(Qt.white)
+        # Wheel zoom and middle-drag pan move the diagram; scroll bars would only take room, and
+        # near a fit one showing shrinks the viewport, the refit hides it, and the view jumps.
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         # Dragging a droplet leaves smears of the ribbon and shadow underneath
         # it with the default minimal-update mode: the soft layers are drawn
         # far outside their nominal geometry. Device caches keep repaints at a

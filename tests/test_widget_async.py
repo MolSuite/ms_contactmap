@@ -213,3 +213,20 @@ def test_selecting_a_glyph_announces_its_residue_once():
     widget._scene.clearSelection()
     assert announced == ["A:10:SER", ""]
     widget.deleteLater()
+
+
+def test_a_zoomed_diagram_shows_no_scroll_bars_and_still_pans():
+    app = ensure_app()
+    scene = QGraphicsScene()
+    scene.addRect(0, 0, 1000, 1000)
+    view = DiagramView(scene)
+    view.resize(300, 300)
+    view.show()
+    view.scale(4, 4)  # far past the fit: the scene overflows both ways
+    app.processEvents()
+    assert not view.horizontalScrollBar().isVisible() and not view.verticalScrollBar().isVisible()
+    bar = view.horizontalScrollBar()
+    before = bar.value()
+    bar.setValue(before + 50)  # what the middle-button hand drag moves
+    assert bar.value() == before + 50
+    view.close()
