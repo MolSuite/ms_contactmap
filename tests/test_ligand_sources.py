@@ -114,6 +114,9 @@ def test_pose_diagram_matches_the_complex(tmp_path):
     by_pose = build_pose_diagram(receptor, _pose_sdf(tmp_path), **common)
     by_complex = build_diagram(JXM["pdb_path"], "JXM", LIGANDS["JXM"]["smiles"], chain="A", resnum=1876, **common)
     assert _contacts(by_pose) and _contacts(by_pose) == _contacts(by_complex)
+    # what a docking hands over: no file for either side
+    by_bytes = build_pose_diagram(receptor.read_bytes(), _pose_sdf(tmp_path).read_bytes(), **common)
+    assert _contacts(by_bytes) == _contacts(by_pose) and "source_pdb" not in by_bytes.metadata
 
 
 def test_pdbqt_receptor_gets_element_symbols(tmp_path):

@@ -200,3 +200,33 @@ def test_dragging_a_line_bends_it_and_double_click_resets():
     QTest.mouseDClick(port, Qt.LeftButton, Qt.NoModifier, view.mapFromScene(apex))
     QApplication.processEvents()
     assert widget._bends == {}
+
+
+def test_selecting_a_glyph_announces_its_residue_once():
+    widget = InteractionDiagramWidget()
+    widget.set_diagram(_diagram())
+    announced = []
+    widget.residueSelected.connect(announced.append)
+    glyph = next(item for item in widget._scene.items() if getattr(item, "residue_key", None) == "A:10:SER")
+    glyph.setSelected(True)
+    glyph.setSelected(True)
+    widget._scene.clearSelection()
+    assert announced == ["A:10:SER", ""]
+    widget.deleteLater()
+
+
+def test_a_zoomed_diagram_shows_no_scroll_bars_and_still_pans():
+    app = ensure_app()
+    scene = QGraphicsScene()
+    scene.addRect(0, 0, 1000, 1000)
+    view = DiagramView(scene)
+    view.resize(300, 300)
+    view.show()
+    view.scale(4, 4)  # far past the fit: the scene overflows both ways
+    app.processEvents()
+    assert not view.horizontalScrollBar().isVisible() and not view.verticalScrollBar().isVisible()
+    bar = view.horizontalScrollBar()
+    before = bar.value()
+    bar.setValue(before + 50)  # what the middle-button hand drag moves
+    assert bar.value() == before + 50
+    view.close()

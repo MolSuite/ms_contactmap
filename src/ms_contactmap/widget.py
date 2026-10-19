@@ -75,6 +75,10 @@ class DiagramView(QGraphicsView):
         self.setDragMode(QGraphicsView.RubberBandDrag)
         self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
         self.setBackgroundBrush(Qt.white)
+        # Wheel zoom and middle-drag pan move the diagram; scroll bars would only take room, and
+        # near a fit one showing shrinks the viewport, the refit hides it, and the view jumps.
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         # Dragging a droplet leaves smears of the ribbon and shadow underneath
         # it with the default minimal-update mode: the soft layers are drawn
         # far outside their nominal geometry. Device caches keep repaints at a
@@ -216,10 +220,14 @@ class InteractionDiagramWidget(QWidget):
     layoutStarted = Signal()
     layoutFinished = Signal(object)
     layoutFailed = Signal(str)
+    #: Residue key of the glyph the user selected, or "" once none is: a host
+    #: shows that residue in its 3D view.
+    residueSelected = Signal(str)
 
     def __init__(self, diagram: Diagram | None = None, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._diagram: Diagram | None = None
+        self._announced_key = ""
         self._build: render.SceneBuild | None = None
         self._layout: LayoutResult | None = None
         self._positions: dict[str, tuple[float, float]] = {}
@@ -1034,6 +1042,9 @@ class InteractionDiagramWidget(QWidget):
             if self._diagram is not None and key in self._diagram.metal_coordination:
                 what += " (coordination sphere)"
         self._selection_label.setText(f"  Rotate: {what}  ")
+        if (key or "") != self._announced_key:
+            self._announced_key = key or ""
+            self.residueSelected.emit(self._announced_key)
 
     def _on_residue_moved(self) -> None:
         """Adopt any dragged droplet positions and redraw around them.
