@@ -3325,7 +3325,12 @@ terms, so the layout and rendering stages never see Biopython.</p>
 
 
 <a href="#ms_contactmap.interactions.exposed_atoms" class="headerlink" title="Permanent link">&para;</a></h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">exposed_atoms</span><span class="p">(</span><span class="n">pdb_path</span><span class="p">,</span> <span class="n">geom</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="dict">dict</span></span><span class="p">[</span><span class="n"><span title="int">int</span></span><span class="p">,</span> <span class="n"><span title="float">float</span></span><span class="p">]</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">exposed_atoms</span><span class="p">(</span><span class="n">atoms</span><span class="p">:</span> <span class="n"><span title="list">list</span></span><span class="p">[</span><span class="n"><a class="autorefs autorefs-internal" title="            PdbAtom
+
+
+  
+      dataclass
+   (ms_contactmap.chem.PdbAtom)" href="./#ms_contactmap.chem.PdbAtom">PdbAtom</a></span><span class="p">],</span> <span class="n">geom</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="dict">dict</span></span><span class="p">[</span><span class="n"><span title="int">int</span></span><span class="p">,</span> <span class="n"><span title="float">float</span></span><span class="p">]</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -3337,18 +3342,14 @@ marked at all; their ratio is <em>how</em> exposed it is -- the fraction of the
 atom's own surface the protein leaves free -- which is what sizes the mark
 the renderer draws.  A ratio rather than a raw area so a sulphur and a
 fully buried-then-freed nitrogen are compared on the same footing.</p>
+<p>Shrake-Rupley as Biopython does it (same radii, probe and sphere), but only
+for the ligand atoms: the protein only occludes, so its own surface is never
+sampled.  <code>atoms</code> is the :func:<code>read_pdb_atoms</code> parse the caller already has.</p>
 
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/ms_contactmap/interactions.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">118</span>
-<span class="normal">119</span>
-<span class="normal">120</span>
-<span class="normal">121</span>
-<span class="normal">122</span>
-<span class="normal">123</span>
-<span class="normal">124</span>
-<span class="normal">125</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">125</span>
 <span class="normal">126</span>
 <span class="normal">127</span>
 <span class="normal">128</span>
@@ -3388,7 +3389,19 @@ fully buried-then-freed nitrogen are compared on the same footing.</p>
 <span class="normal">162</span>
 <span class="normal">163</span>
 <span class="normal">164</span>
-<span class="normal">165</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">exposed_atoms</span><span class="p">(</span><span class="n">pdb_path</span><span class="p">,</span> <span class="n">geom</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">float</span><span class="p">]:</span>
+<span class="normal">165</span>
+<span class="normal">166</span>
+<span class="normal">167</span>
+<span class="normal">168</span>
+<span class="normal">169</span>
+<span class="normal">170</span>
+<span class="normal">171</span>
+<span class="normal">172</span>
+<span class="normal">173</span>
+<span class="normal">174</span>
+<span class="normal">175</span>
+<span class="normal">176</span>
+<span class="normal">177</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">exposed_atoms</span><span class="p">(</span><span class="n">atoms</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">PdbAtom</span><span class="p">],</span> <span class="n">geom</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">float</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">"""How exposed each solvent-reachable ligand atom is, by RDKit index.</span>
 
 <span class="sd">    SASA is computed twice, once for the isolated ligand and once for the</span>
@@ -3397,45 +3410,50 @@ fully buried-then-freed nitrogen are compared on the same footing.</p>
 <span class="sd">    atom's own surface the protein leaves free -- which is what sizes the mark</span>
 <span class="sd">    the renderer draws.  A ratio rather than a raw area so a sulphur and a</span>
 <span class="sd">    fully buried-then-freed nitrogen are compared on the same footing.</span>
+
+<span class="sd">    Shrake-Rupley as Biopython does it (same radii, probe and sphere), but only</span>
+<span class="sd">    for the ligand atoms: the protein only occludes, so its own surface is never</span>
+<span class="sd">    sampled.  ``atoms`` is the :func:`read_pdb_atoms` parse the caller already has.</span>
 <span class="sd">    """</span>
-    <span class="n">model</span> <span class="o">=</span> <span class="n">PDBParser</span><span class="p">(</span><span class="n">QUIET</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span><span class="o">.</span><span class="n">get_structure</span><span class="p">(</span><span class="s2">"cx"</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">pdb_path</span><span class="p">))[</span><span class="mi">0</span><span class="p">]</span>
-    <span class="n">ligand</span> <span class="o">=</span> <span class="kc">None</span>
-    <span class="k">for</span> <span class="n">chain</span> <span class="ow">in</span> <span class="n">model</span><span class="p">:</span>
-        <span class="k">for</span> <span class="n">residue</span> <span class="ow">in</span> <span class="nb">list</span><span class="p">(</span><span class="n">chain</span><span class="p">):</span>
-            <span class="n">name</span> <span class="o">=</span> <span class="n">residue</span><span class="o">.</span><span class="n">get_resname</span><span class="p">()</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
-            <span class="k">if</span> <span class="p">(</span>
-                <span class="n">name</span> <span class="o">==</span> <span class="n">geom</span><span class="o">.</span><span class="n">resname</span>
-                <span class="ow">and</span> <span class="n">chain</span><span class="o">.</span><span class="n">id</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="o">==</span> <span class="n">geom</span><span class="o">.</span><span class="n">chain</span>
-                <span class="ow">and</span> <span class="n">residue</span><span class="o">.</span><span class="n">id</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="n">geom</span><span class="o">.</span><span class="n">resnum</span>
-            <span class="p">):</span>
-                <span class="n">ligand</span> <span class="o">=</span> <span class="n">residue</span>
-            <span class="k">elif</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">WATER_NAMES</span><span class="p">:</span>
-                <span class="n">chain</span><span class="o">.</span><span class="n">detach_child</span><span class="p">(</span><span class="n">residue</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>  <span class="c1"># bulk water is not the pocket</span>
-    <span class="k">if</span> <span class="n">ligand</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="n">kept</span> <span class="o">=</span> <span class="p">[</span><span class="n">a</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">atoms</span> <span class="k">if</span> <span class="n">a</span><span class="o">.</span><span class="n">resname</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">WATER_NAMES</span><span class="p">]</span>  <span class="c1"># bulk water is not the pocket</span>
+    <span class="n">ligand</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span>
+        <span class="n">a</span><span class="o">.</span><span class="n">resname</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span> <span class="o">==</span> <span class="n">geom</span><span class="o">.</span><span class="n">resname</span> <span class="ow">and</span> <span class="n">a</span><span class="o">.</span><span class="n">chain</span> <span class="o">==</span> <span class="n">geom</span><span class="o">.</span><span class="n">chain</span> <span class="ow">and</span> <span class="n">a</span><span class="o">.</span><span class="n">resnum</span> <span class="o">==</span> <span class="n">geom</span><span class="o">.</span><span class="n">resnum</span>
+        <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">kept</span>
+    <span class="p">])</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">ligand</span><span class="o">.</span><span class="n">any</span><span class="p">():</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">geom</span><span class="o">.</span><span class="n">resname</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">geom</span><span class="o">.</span><span class="n">chain</span><span class="si">}</span><span class="s2">:</span><span class="si">{</span><span class="n">geom</span><span class="o">.</span><span class="n">resnum</span><span class="si">}</span><span class="s2"> not found for SASA"</span><span class="p">)</span>
 
-    <span class="n">ligand_xyz</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">a</span><span class="o">.</span><span class="n">coord</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">ligand</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">)</span>
-    <span class="k">for</span> <span class="n">chain</span> <span class="ow">in</span> <span class="nb">list</span><span class="p">(</span><span class="n">model</span><span class="p">):</span>
-        <span class="k">for</span> <span class="n">residue</span> <span class="ow">in</span> <span class="nb">list</span><span class="p">(</span><span class="n">chain</span><span class="p">):</span>
-            <span class="k">if</span> <span class="n">residue</span> <span class="ow">is</span> <span class="n">ligand</span><span class="p">:</span>
-                <span class="k">continue</span>
-            <span class="n">xyz</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">a</span><span class="o">.</span><span class="n">coord</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">residue</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">)</span>
-            <span class="k">if</span> <span class="n">xyz</span><span class="o">.</span><span class="n">size</span> <span class="o">==</span> <span class="mi">0</span> <span class="ow">or</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span>
-                <span class="n">xyz</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">,</span> <span class="p">:]</span> <span class="o">-</span> <span class="n">ligand_xyz</span><span class="p">[</span><span class="kc">None</span><span class="p">,</span> <span class="p">:,</span> <span class="p">:],</span> <span class="n">axis</span><span class="o">=</span><span class="mi">2</span>
-            <span class="p">)</span><span class="o">.</span><span class="n">min</span><span class="p">()</span> <span class="o">&gt;</span> <span class="n">SASA_SHELL</span><span class="p">:</span>
-                <span class="n">chain</span><span class="o">.</span><span class="n">detach_child</span><span class="p">(</span><span class="n">residue</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
+    <span class="n">xyz</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([(</span><span class="n">a</span><span class="o">.</span><span class="n">x</span><span class="p">,</span> <span class="n">a</span><span class="o">.</span><span class="n">y</span><span class="p">,</span> <span class="n">a</span><span class="o">.</span><span class="n">z</span><span class="p">)</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">kept</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">)</span>
+    <span class="c1"># ponytail: an element Biopython has no radius for gets carbon's instead of a KeyError.</span>
+    <span class="n">radius</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">ATOMIC_RADII</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">a</span><span class="o">.</span><span class="n">element</span><span class="p">,</span> <span class="n">ATOMIC_RADII</span><span class="p">[</span><span class="s2">"C"</span><span class="p">])</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">kept</span><span class="p">])</span> <span class="o">+</span> <span class="n">SASA_PROBE</span>
+    <span class="n">sphere</span> <span class="o">=</span> <span class="n">_sphere</span><span class="p">(</span><span class="n">SASA_POINTS</span><span class="p">)</span>
 
-    <span class="n">shrake</span> <span class="o">=</span> <span class="n">ShrakeRupley</span><span class="p">(</span><span class="n">n_points</span><span class="o">=</span><span class="n">SASA_POINTS</span><span class="p">)</span>
-    <span class="n">shrake</span><span class="o">.</span><span class="n">compute</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">level</span><span class="o">=</span><span class="s2">"A"</span><span class="p">)</span>
-    <span class="n">in_complex</span> <span class="o">=</span> <span class="p">{</span><span class="n">a</span><span class="o">.</span><span class="n">serial_number</span><span class="p">:</span> <span class="n">a</span><span class="o">.</span><span class="n">sasa</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">ligand</span><span class="p">}</span>
-    <span class="n">shrake</span><span class="o">.</span><span class="n">compute</span><span class="p">(</span><span class="n">ligand</span><span class="p">,</span> <span class="n">level</span><span class="o">=</span><span class="s2">"A"</span><span class="p">)</span>  <span class="c1"># overwrites .sasa, hence the copy above</span>
-    <span class="n">alone</span> <span class="o">=</span> <span class="p">{</span><span class="n">a</span><span class="o">.</span><span class="n">serial_number</span><span class="p">:</span> <span class="n">a</span><span class="o">.</span><span class="n">sasa</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">ligand</span><span class="p">}</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">area</span><span class="p">(</span><span class="n">i</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">occluders</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+        <span class="n">near</span> <span class="o">=</span> <span class="n">occluders</span><span class="p">[</span>
+            <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">xyz</span><span class="p">[</span><span class="n">occluders</span><span class="p">]</span> <span class="o">-</span> <span class="n">xyz</span><span class="p">[</span><span class="n">i</span><span class="p">],</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span> <span class="o">&lt;</span> <span class="n">radius</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">+</span> <span class="n">radius</span><span class="p">[</span><span class="n">occluders</span><span class="p">])</span>
+            <span class="o">&amp;</span> <span class="p">(</span><span class="n">occluders</span> <span class="o">!=</span> <span class="n">i</span><span class="p">)</span>
+        <span class="p">]</span>
+        <span class="n">points</span> <span class="o">=</span> <span class="n">sphere</span> <span class="o">*</span> <span class="n">radius</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">+</span> <span class="n">xyz</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+        <span class="n">buried</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">points</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">,</span> <span class="p">:]</span> <span class="o">-</span> <span class="n">xyz</span><span class="p">[</span><span class="n">near</span><span class="p">][</span><span class="kc">None</span><span class="p">,</span> <span class="p">:,</span> <span class="p">:],</span> <span class="n">axis</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span> <span class="o">&lt;=</span> <span class="n">radius</span><span class="p">[</span><span class="n">near</span><span class="p">]</span>
+        <span class="p">)</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+        <span class="k">return</span> <span class="nb">float</span><span class="p">((</span><span class="o">~</span><span class="n">buried</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">())</span> <span class="o">*</span> <span class="mf">4.0</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">pi</span> <span class="o">*</span> <span class="n">radius</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">**</span> <span class="mi">2</span> <span class="o">/</span> <span class="nb">len</span><span class="p">(</span><span class="n">sphere</span><span class="p">)</span>
 
-    <span class="k">return</span> <span class="p">{</span>
-        <span class="n">idx</span><span class="p">:</span> <span class="nb">min</span><span class="p">(</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">in_complex</span><span class="p">[</span><span class="n">serial</span><span class="p">]</span> <span class="o">/</span> <span class="n">alone</span><span class="p">[</span><span class="n">serial</span><span class="p">])</span>
-        <span class="k">for</span> <span class="n">serial</span><span class="p">,</span> <span class="n">idx</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">geom</span><span class="o">.</span><span class="n">serial_to_idx</span><span class="o">.</span><span class="n">items</span><span class="p">())</span>
-        <span class="k">if</span> <span class="n">in_complex</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">serial</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">SASA_MIN</span> <span class="ow">and</span> <span class="n">alone</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">serial</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mf">0.0</span>
-    <span class="p">}</span>
+    <span class="n">everyone</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">kept</span><span class="p">))</span>
+    <span class="n">alone_only</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">flatnonzero</span><span class="p">(</span><span class="n">ligand</span><span class="p">)</span>
+    <span class="n">by_serial</span> <span class="o">=</span> <span class="p">{</span><span class="n">kept</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">serial</span><span class="p">:</span> <span class="n">i</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">alone_only</span><span class="p">}</span>
+    <span class="n">exposure</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">serial</span><span class="p">,</span> <span class="n">idx</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">geom</span><span class="o">.</span><span class="n">serial_to_idx</span><span class="o">.</span><span class="n">items</span><span class="p">()):</span>
+        <span class="n">i</span> <span class="o">=</span> <span class="n">by_serial</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">serial</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">i</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">continue</span>
+        <span class="n">in_complex</span> <span class="o">=</span> <span class="n">area</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="n">everyone</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">in_complex</span> <span class="o">&lt;=</span> <span class="n">SASA_MIN</span><span class="p">:</span>
+            <span class="k">continue</span>
+        <span class="n">alone</span> <span class="o">=</span> <span class="n">area</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="n">alone_only</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">alone</span> <span class="o">&gt;</span> <span class="mf">0.0</span><span class="p">:</span>
+            <span class="n">exposure</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">in_complex</span> <span class="o">/</span> <span class="n">alone</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">exposure</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -3470,19 +3488,7 @@ disabled for a fast analysis when solvent halos are not needed.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/ms_contactmap/interactions.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">172</span>
-<span class="normal">173</span>
-<span class="normal">174</span>
-<span class="normal">175</span>
-<span class="normal">176</span>
-<span class="normal">177</span>
-<span class="normal">178</span>
-<span class="normal">179</span>
-<span class="normal">180</span>
-<span class="normal">181</span>
-<span class="normal">182</span>
-<span class="normal">183</span>
-<span class="normal">184</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">184</span>
 <span class="normal">185</span>
 <span class="normal">186</span>
 <span class="normal">187</span>
@@ -3578,7 +3584,19 @@ disabled for a fast analysis when solvent halos are not needed.</p>
 <span class="normal">277</span>
 <span class="normal">278</span>
 <span class="normal">279</span>
-<span class="normal">280</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">build_diagram</span><span class="p">(</span>
+<span class="normal">280</span>
+<span class="normal">281</span>
+<span class="normal">282</span>
+<span class="normal">283</span>
+<span class="normal">284</span>
+<span class="normal">285</span>
+<span class="normal">286</span>
+<span class="normal">287</span>
+<span class="normal">288</span>
+<span class="normal">289</span>
+<span class="normal">290</span>
+<span class="normal">291</span>
+<span class="normal">292</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">build_diagram</span><span class="p">(</span>
     <span class="n">pdb_path</span><span class="p">,</span>
     <span class="n">resname</span><span class="p">,</span>
     <span class="n">smiles</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
@@ -3668,7 +3686,7 @@ disabled for a fast analysis when solvent halos are not needed.</p>
         <span class="n">coords_alt</span><span class="o">=</span><span class="n">views</span><span class="p">[</span><span class="mi">1</span><span class="p">:],</span>
         <span class="n">residues</span><span class="o">=</span><span class="n">residues</span><span class="p">,</span>
         <span class="n">interactions</span><span class="o">=</span><span class="p">[</span><span class="n">i</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">interactions</span> <span class="k">if</span> <span class="n">i</span><span class="o">.</span><span class="n">residue_key</span> <span class="ow">in</span> <span class="n">drawn</span><span class="p">],</span>
-        <span class="n">exposure</span><span class="o">=</span><span class="n">exposed_atoms</span><span class="p">(</span><span class="n">pdb_path</span><span class="p">,</span> <span class="n">geom</span><span class="p">)</span> <span class="k">if</span> <span class="n">compute_exposure</span> <span class="k">else</span> <span class="p">{},</span>
+        <span class="n">exposure</span><span class="o">=</span><span class="n">exposed_atoms</span><span class="p">(</span><span class="n">atoms</span><span class="p">,</span> <span class="n">geom</span><span class="p">)</span> <span class="k">if</span> <span class="n">compute_exposure</span> <span class="k">else</span> <span class="p">{},</span>
         <span class="n">nearest_atom</span><span class="o">=</span><span class="n">nearest</span><span class="p">,</span>
         <span class="n">metal_legs</span><span class="o">=</span><span class="p">[</span>
             <span class="n">leg</span> <span class="k">for</span> <span class="n">leg</span> <span class="ow">in</span> <span class="n">metal_legs</span>
@@ -3723,19 +3741,7 @@ the pose as residue <code>UNL</code> 1 on a chain the receptor does not use.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/ms_contactmap/interactions.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">332</span>
-<span class="normal">333</span>
-<span class="normal">334</span>
-<span class="normal">335</span>
-<span class="normal">336</span>
-<span class="normal">337</span>
-<span class="normal">338</span>
-<span class="normal">339</span>
-<span class="normal">340</span>
-<span class="normal">341</span>
-<span class="normal">342</span>
-<span class="normal">343</span>
-<span class="normal">344</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">344</span>
 <span class="normal">345</span>
 <span class="normal">346</span>
 <span class="normal">347</span>
@@ -3787,7 +3793,19 @@ the pose as residue <code>UNL</code> 1 on a chain the receptor does not use.</p>
 <span class="normal">393</span>
 <span class="normal">394</span>
 <span class="normal">395</span>
-<span class="normal">396</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">build_pose_diagram</span><span class="p">(</span>
+<span class="normal">396</span>
+<span class="normal">397</span>
+<span class="normal">398</span>
+<span class="normal">399</span>
+<span class="normal">400</span>
+<span class="normal">401</span>
+<span class="normal">402</span>
+<span class="normal">403</span>
+<span class="normal">404</span>
+<span class="normal">405</span>
+<span class="normal">406</span>
+<span class="normal">407</span>
+<span class="normal">408</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">build_pose_diagram</span><span class="p">(</span>
     <span class="n">receptor</span><span class="p">,</span>
     <span class="n">ligand</span><span class="p">,</span>
     <span class="n">name</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
