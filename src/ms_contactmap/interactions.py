@@ -19,8 +19,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
-from Bio.PDB import PDBParser
-from Bio.PDB.SASA import ShrakeRupley
+from Bio.PDB.SASA import ATOMIC_RADII
 
 from .chem import PdbAtom, load_ligand, read_pdb_atoms
 from .model import (
@@ -53,9 +52,8 @@ SASA_MIN = 2.0
 #: Shrake-Rupley sphere sampling.  The Biopython default (100) quantises a
 #: carbon's area in ~1.2 A^2 steps, which is coarser than SASA_MIN.
 SASA_POINTS = 960
-#: Atoms further than this from the ligand cannot occlude it (probe 1.4 A plus
-#: two heavy-atom radii is < 6 A), so trimming here is exact, not approximate.
-SASA_SHELL = 12.0
+#: Water probe radius (A), Biopython's default.
+SASA_PROBE = 1.40
 
 
 # ---------------------------------------------------------------------------
@@ -115,7 +113,16 @@ def _pocket(groups, ligand_xyz: np.ndarray, interacting: set[str]):
 # Solvent exposure
 # ---------------------------------------------------------------------------
 
-def exposed_atoms(pdb_path, geom) -> dict[int, float]:
+def _sphere(n: int) -> np.ndarray:
+    """Golden-spiral points on the unit sphere, the same set Biopython samples."""
+    k = np.arange(n)
+    z = 1.0 - (2 * k + 1) / n
+    longitude = k * np.pi * (3.0 - 5.0 ** 0.5)
+    r = np.sqrt(1.0 - z * z)
+    return np.column_stack([np.cos(longitude) * r, np.sin(longitude) * r, z])
+
+
+def exposed_atoms(atoms: list[PdbAtom], geom) -> dict[int, float]:
     """How exposed each solvent-reachable ligand atom is, by RDKit index.
 
     SASA is computed twice, once for the isolated ligand and once for the
@@ -124,45 +131,50 @@ def exposed_atoms(pdb_path, geom) -> dict[int, float]:
     atom's own surface the protein leaves free -- which is what sizes the mark
     the renderer draws.  A ratio rather than a raw area so a sulphur and a
     fully buried-then-freed nitrogen are compared on the same footing.
+
+    Shrake-Rupley as Biopython does it (same radii, probe and sphere), but only
+    for the ligand atoms: the protein only occludes, so its own surface is never
+    sampled.  ``atoms`` is the :func:`read_pdb_atoms` parse the caller already has.
     """
-    model = PDBParser(QUIET=True).get_structure("cx", str(pdb_path))[0]
-    ligand = None
-    for chain in model:
-        for residue in list(chain):
-            name = residue.get_resname().strip().upper()
-            if (
-                name == geom.resname
-                and chain.id.strip() == geom.chain
-                and residue.id[1] == geom.resnum
-            ):
-                ligand = residue
-            elif name in WATER_NAMES:
-                chain.detach_child(residue.id)  # bulk water is not the pocket
-    if ligand is None:
+    kept = [a for a in atoms if a.resname.upper() not in WATER_NAMES]  # bulk water is not the pocket
+    ligand = np.array([
+        a.resname.upper() == geom.resname and a.chain == geom.chain and a.resnum == geom.resnum
+        for a in kept
+    ])
+    if not ligand.any():
         raise ValueError(f"{geom.resname} {geom.chain}:{geom.resnum} not found for SASA")
 
-    ligand_xyz = np.array([a.coord for a in ligand], dtype=float)
-    for chain in list(model):
-        for residue in list(chain):
-            if residue is ligand:
-                continue
-            xyz = np.array([a.coord for a in residue], dtype=float)
-            if xyz.size == 0 or np.linalg.norm(
-                xyz[:, None, :] - ligand_xyz[None, :, :], axis=2
-            ).min() > SASA_SHELL:
-                chain.detach_child(residue.id)
+    xyz = np.array([(a.x, a.y, a.z) for a in kept], dtype=float)
+    # ponytail: an element Biopython has no radius for gets carbon's instead of a KeyError.
+    radius = np.array([ATOMIC_RADII.get(a.element, ATOMIC_RADII["C"]) for a in kept]) + SASA_PROBE
+    sphere = _sphere(SASA_POINTS)
 
-    shrake = ShrakeRupley(n_points=SASA_POINTS)
-    shrake.compute(model, level="A")
-    in_complex = {a.serial_number: a.sasa for a in ligand}
-    shrake.compute(ligand, level="A")  # overwrites .sasa, hence the copy above
-    alone = {a.serial_number: a.sasa for a in ligand}
+    def area(i: int, occluders: np.ndarray) -> float:
+        near = occluders[
+            (np.linalg.norm(xyz[occluders] - xyz[i], axis=1) < radius[i] + radius[occluders])
+            & (occluders != i)
+        ]
+        points = sphere * radius[i] + xyz[i]
+        buried = (
+            np.linalg.norm(points[:, None, :] - xyz[near][None, :, :], axis=2) <= radius[near]
+        ).any(axis=1)
+        return float((~buried).sum()) * 4.0 * np.pi * radius[i] ** 2 / len(sphere)
 
-    return {
-        idx: min(1.0, in_complex[serial] / alone[serial])
-        for serial, idx in sorted(geom.serial_to_idx.items())
-        if in_complex.get(serial, 0.0) > SASA_MIN and alone.get(serial, 0.0) > 0.0
-    }
+    everyone = np.arange(len(kept))
+    alone_only = np.flatnonzero(ligand)
+    by_serial = {kept[i].serial: i for i in alone_only}
+    exposure: dict[int, float] = {}
+    for serial, idx in sorted(geom.serial_to_idx.items()):
+        i = by_serial.get(serial)
+        if i is None:
+            continue
+        in_complex = area(i, everyone)
+        if in_complex <= SASA_MIN:
+            continue
+        alone = area(i, alone_only)
+        if alone > 0.0:
+            exposure[idx] = min(1.0, in_complex / alone)
+    return exposure
 
 
 # ---------------------------------------------------------------------------
@@ -259,7 +271,7 @@ def build_diagram(
         coords_alt=views[1:],
         residues=residues,
         interactions=[i for i in interactions if i.residue_key in drawn],
-        exposure=exposed_atoms(pdb_path, geom) if compute_exposure else {},
+        exposure=exposed_atoms(atoms, geom) if compute_exposure else {},
         nearest_atom=nearest,
         metal_legs=[
             leg for leg in metal_legs
