@@ -257,11 +257,19 @@ class InteractionDiagramWidget(QWidget):
         self._scene.selectionChanged.connect(self._on_selection_changed)
         self._view = DiagramView(self._scene, self)
         self._view.residueMoved.connect(self._on_residue_moved)
-        # Empty state (show_build_prompt): a centered call to action instead of the view.
+        # Empty state (show_build_prompt): a message and a call to action instead of the view.
+        self._prompt_label = QLabel(self)
+        self._prompt_label.setAlignment(Qt.AlignCenter)
+        self._prompt_label.setWordWrap(True)
         self._build_button = QPushButton("Build diagram", self)
         self._build_button.clicked.connect(self.buildRequested)
         prompt = QWidget(self)
-        QVBoxLayout(prompt).addWidget(self._build_button, 0, Qt.AlignCenter)
+        prompt_box = QVBoxLayout(prompt)
+        prompt_box.addStretch(1)
+        prompt_box.addWidget(self._prompt_label)
+        prompt_box.addSpacing(8)
+        prompt_box.addWidget(self._build_button, 0, Qt.AlignCenter)
+        prompt_box.addStretch(1)
         self._pages = QStackedWidget(self)
         self._pages.addWidget(self._view)
         self._pages.addWidget(prompt)
@@ -628,11 +636,12 @@ class InteractionDiagramWidget(QWidget):
                 return key
         return None
 
-    def show_build_prompt(self) -> None:
-        """Swap the diagram for a centered Build diagram button (``buildRequested``).
+    def show_build_prompt(self, message: str = "No interaction diagram has been computed yet.") -> None:
+        """Swap the diagram for ``message`` over a Build diagram button (``buildRequested``).
 
         The next drawn diagram brings the view back.
         """
+        self._prompt_label.setText(message)
         self._pages.setCurrentIndex(1)
         self._toolbar.setEnabled(False)
 

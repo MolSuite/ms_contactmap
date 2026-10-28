@@ -239,7 +239,8 @@ def test_build_prompt_emits_and_gives_way_to_the_next_diagram():
     widget = InteractionDiagramWidget()
     asked = []
     widget.buildRequested.connect(lambda: asked.append(True))
-    widget.show_build_prompt()
+    widget.show_build_prompt("Nothing yet.")
+    assert widget._prompt_label.text() == "Nothing yet."
     assert widget._pages.currentIndex() == 1 and not widget._toolbar.isEnabled()
     widget._build_button.click()
     assert asked == [True]
