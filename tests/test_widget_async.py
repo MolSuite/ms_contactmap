@@ -230,3 +230,18 @@ def test_a_zoomed_diagram_shows_no_scroll_bars_and_still_pans():
     bar.setValue(before + 50)  # what the middle-button hand drag moves
     assert bar.value() == before + 50
     view.close()
+
+
+def test_build_prompt_emits_and_gives_way_to_the_next_diagram():
+    from ms_contactmap import solve_layout
+
+    diagram = _diagram()
+    widget = InteractionDiagramWidget()
+    asked = []
+    widget.buildRequested.connect(lambda: asked.append(True))
+    widget.show_build_prompt()
+    assert widget._pages.currentIndex() == 1 and not widget._toolbar.isEnabled()
+    widget._build_button.click()
+    assert asked == [True]
+    widget.set_layout(diagram, solve_layout(diagram))
+    assert widget._pages.currentWidget() is widget._view and widget._toolbar.isEnabled()

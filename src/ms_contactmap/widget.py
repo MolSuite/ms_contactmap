@@ -21,6 +21,8 @@ from PySide6.QtWidgets import (
     QGraphicsView,
     QLabel,
     QMenu,
+    QPushButton,
+    QStackedWidget,
     QToolBar,
     QToolButton,
     QVBoxLayout,
@@ -223,6 +225,8 @@ class InteractionDiagramWidget(QWidget):
     #: Residue key of the glyph the user selected, or "" once none is: a host
     #: shows that residue in its 3D view.
     residueSelected = Signal(str)
+    #: The empty state's Build diagram button was pressed: the host builds one.
+    buildRequested = Signal()
 
     def __init__(self, diagram: Diagram | None = None, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -253,6 +257,14 @@ class InteractionDiagramWidget(QWidget):
         self._scene.selectionChanged.connect(self._on_selection_changed)
         self._view = DiagramView(self._scene, self)
         self._view.residueMoved.connect(self._on_residue_moved)
+        # Empty state (show_build_prompt): a centered call to action instead of the view.
+        self._build_button = QPushButton("Build diagram", self)
+        self._build_button.clicked.connect(self.buildRequested)
+        prompt = QWidget(self)
+        QVBoxLayout(prompt).addWidget(self._build_button, 0, Qt.AlignCenter)
+        self._pages = QStackedWidget(self)
+        self._pages.addWidget(self._view)
+        self._pages.addWidget(prompt)
 
         self._status_label = QLabel("  Ready  ")
         self._status_label.setMinimumWidth(170)
@@ -271,7 +283,7 @@ class InteractionDiagramWidget(QWidget):
         box.setContentsMargins(0, 0, 0, 0)
         box.setSpacing(0)
         box.addWidget(self._toolbar)
-        box.addWidget(self._view)
+        box.addWidget(self._pages)
 
         # Also exposed through QWidget.actions(), so a host can drop the same
         # actions into its own menu; right-click shows them here.
@@ -615,6 +627,14 @@ class InteractionDiagramWidget(QWidget):
             if key is not None:
                 return key
         return None
+
+    def show_build_prompt(self) -> None:
+        """Swap the diagram for a centered Build diagram button (``buildRequested``).
+
+        The next drawn diagram brings the view back.
+        """
+        self._pages.setCurrentIndex(1)
+        self._toolbar.setEnabled(False)
 
     def set_diagram(self, diagram: Diagram, **layout_options) -> None:
         """Synchronously solve ``diagram`` and draw it.
@@ -979,6 +999,8 @@ class InteractionDiagramWidget(QWidget):
     def _rebuild(self) -> None:
         if self._diagram is None or self._layout is None:
             return
+        self._pages.setCurrentIndex(0)
+        self._toolbar.setEnabled(True)
         # Keep the serializable layout synchronized with manual drags and
         # rotations; otherwise JSON export would silently restore the old pose.
         self._layout.positions = dict(self._positions)
