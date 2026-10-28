@@ -216,6 +216,29 @@ class _LayoutTask(QRunnable):
         self.signals.finished.emit(self.request_id, None, layout)
 
 
+class _BuildTask(QRunnable):
+    """Detection + layout of a held complex (``set_complex``), off the GUI thread."""
+
+    def __init__(self, request_id: int, source: tuple) -> None:
+        super().__init__()
+        self.request_id = request_id
+        self.source = source
+        self.signals = _LayoutSignals()
+
+    @Slot()
+    def run(self) -> None:
+        from .interactions import build_pose_diagram
+
+        receptor, ligand, name = self.source
+        try:
+            diagram = build_pose_diagram(receptor, ligand, name=name)
+            layout = solve_layout(diagram)
+        except Exception as exc:
+            self.signals.failed.emit(self.request_id, f"{type(exc).__name__}: {exc}")
+            return
+        self.signals.finished.emit(self.request_id, diagram, layout)
+
+
 class InteractionDiagramWidget(QWidget):
     """Reusable 2D protein-ligand interaction diagram."""
 
@@ -225,8 +248,8 @@ class InteractionDiagramWidget(QWidget):
     #: Residue key of the glyph the user selected, or "" once none is: a host
     #: shows that residue in its 3D view.
     residueSelected = Signal(str)
-    #: The empty state's Build diagram button was pressed: the host builds one.
-    buildRequested = Signal()
+    #: (diagram, layout) built from the complex held by set_complex: the host may save it.
+    diagramBuilt = Signal(object, object)
 
     def __init__(self, diagram: Diagram | None = None, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -251,18 +274,23 @@ class InteractionDiagramWidget(QWidget):
         self._solve_started = 0.0
         self._solve_operation = "Optimizing layout"
         self._reshuffle_variant = 0
+        #: set_complex: (receptor, ligand, name) waiting for Build diagram, and its prompt.
+        self._complex: tuple | None = None
+        self._complex_message = ""
+        self._complex_serial = 0
+        self._build_tasks: dict[int, _BuildTask] = {}
         self._residue_variant = 0
 
         self._scene = QGraphicsScene(self)
         self._scene.selectionChanged.connect(self._on_selection_changed)
         self._view = DiagramView(self._scene, self)
         self._view.residueMoved.connect(self._on_residue_moved)
-        # Empty state (show_build_prompt): a message and a call to action instead of the view.
+        # Empty state (set_complex): a message and a call to action instead of the view.
         self._prompt_label = QLabel(self)
         self._prompt_label.setAlignment(Qt.AlignCenter)
         self._prompt_label.setWordWrap(True)
         self._build_button = QPushButton("Build diagram", self)
-        self._build_button.clicked.connect(self.buildRequested)
+        self._build_button.clicked.connect(self._build_complex)
         prompt = QWidget(self)
         prompt_box = QVBoxLayout(prompt)
         prompt_box.addStretch(1)
@@ -636,14 +664,50 @@ class InteractionDiagramWidget(QWidget):
                 return key
         return None
 
-    def show_build_prompt(self, message: str = "No interaction diagram has been computed yet.") -> None:
-        """Swap the diagram for ``message`` over a Build diagram button (``buildRequested``).
+    def set_complex(self, receptor, ligand, name: str | None = None,
+                    message: str = "No interaction diagram has been computed yet.") -> None:
+        """Hold a receptor and its posed ligand behind ``message`` and a Build diagram button.
 
-        The next drawn diagram brings the view back.
+        Nothing is read until the button is pressed: then detection and layout run off the
+        GUI thread, the diagram is drawn and ``diagramBuilt`` emitted. ``receptor`` and
+        ``ligand`` are whatever :func:`~ms_contactmap.build_pose_diagram` takes (paths,
+        bytes, a ``Mol``). Any diagram drawn meanwhile discards the held complex.
         """
+        self._complex_serial += 1
+        self._complex = (receptor, ligand, name)
+        self._complex_message = message
         self._prompt_label.setText(message)
+        self._build_button.setEnabled(True)
         self._pages.setCurrentIndex(1)
         self._toolbar.setEnabled(False)
+
+    def _build_complex(self) -> None:
+        if self._complex is None:
+            return
+        self._build_button.setEnabled(False)
+        self._prompt_label.setText(f"{self._complex_message}\n\nBuilding the diagram…")
+        task = _BuildTask(self._complex_serial, self._complex)
+        task.signals.finished.connect(self._on_complex_built)
+        task.signals.failed.connect(self._on_complex_failed)
+        self._build_tasks[task.request_id] = task  # keeps its signals alive until it reports
+        self._layout_pool.start(task)
+
+    @Slot(int, object, object)
+    def _on_complex_built(self, request_id: int, diagram: Diagram, layout: LayoutResult) -> None:
+        self._build_tasks.pop(request_id, None)
+        # ponytail: a build the host moved away from is dropped, not delivered late.
+        if request_id != self._complex_serial:
+            return
+        self.set_layout(diagram, layout)
+        self.diagramBuilt.emit(diagram, layout)
+
+    @Slot(int, str)
+    def _on_complex_failed(self, request_id: int, message: str) -> None:
+        self._build_tasks.pop(request_id, None)
+        if request_id != self._complex_serial:
+            return
+        self._prompt_label.setText(f"{self._complex_message}\n\nBuild failed: {message}")
+        self._build_button.setEnabled(True)
 
     def set_diagram(self, diagram: Diagram, **layout_options) -> None:
         """Synchronously solve ``diagram`` and draw it.
@@ -1008,6 +1072,7 @@ class InteractionDiagramWidget(QWidget):
     def _rebuild(self) -> None:
         if self._diagram is None or self._layout is None:
             return
+        self._complex, self._complex_serial = None, self._complex_serial + 1  # drawn: nothing held
         self._pages.setCurrentIndex(0)
         self._toolbar.setEnabled(True)
         # Keep the serializable layout synchronized with manual drags and
