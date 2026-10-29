@@ -230,3 +230,42 @@ def test_a_zoomed_diagram_shows_no_scroll_bars_and_still_pans():
     bar.setValue(before + 50)  # what the middle-button hand drag moves
     assert bar.value() == before + 50
     view.close()
+
+
+
+def _wait_until(condition, seconds: float = 30.0) -> bool:
+    deadline = time.monotonic() + seconds
+    while not condition() and time.monotonic() < deadline:
+        QApplication.processEvents()
+        time.sleep(0.01)
+    return condition()
+
+
+def test_set_complex_waits_for_build_diagram_then_builds_and_reports(tmp_path):
+    ensure_app()
+    mol = Chem.AddHs(Chem.MolFromSmiles("OCCO"))
+    AllChem.EmbedMolecule(mol, randomSeed=1)
+    ligand = tmp_path / "pose.sdf"
+    ligand.write_text(Chem.MolToMolBlock(mol) + "$$$$\n")
+    x, y, z = mol.GetConformer().GetAtomPosition(0)
+    receptor = tmp_path / "receptor.pdb"
+    receptor.write_text("".join(
+        f"ATOM  {i:>5}  {name:<3} SER A  10    {x + dx:8.3f}{y + dy:8.3f}{z:8.3f}  1.00  0.00           {name[0]}\n"
+        for i, (name, dx, dy) in enumerate([("N", 5, 0), ("CA", 4, 1), ("C", 4.5, 2.3), ("O", 5.5, 2.5),
+                                             ("CB", 3.2, 0.5), ("OG", 2.8, 0)], 1)) + "END\n")
+
+    widget = InteractionDiagramWidget()
+    built = []
+    widget.diagramBuilt.connect(lambda diagram, layout: built.append((diagram, layout)))
+    widget.set_complex(receptor, tmp_path / "missing.sdf", "lig", message="Nothing yet.")
+    assert widget._pages.currentIndex() == 1 and widget._prompt_label.text() == "Nothing yet."
+    widget._build_button.click()  # a bad complex: the error lands under the message, button back on
+    assert _wait_until(lambda: "Build failed" in widget._prompt_label.text())
+    assert widget._build_button.isEnabled() and not built
+
+    widget.set_complex(receptor, ligand, "lig")
+    assert widget.diagram is None  # held, not read
+    widget._build_button.click()
+    assert _wait_until(lambda: bool(built))
+    assert built[0][0] is widget.diagram and widget._pages.currentWidget() is widget._view
+    assert widget._toolbar.isEnabled()
