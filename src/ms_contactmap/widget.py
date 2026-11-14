@@ -11,7 +11,8 @@ import math
 import time
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QPointF, QRunnable, Qt, QThreadPool, QTimer, Signal, Slot
+from PySide6.QtCore import (SIGNAL, QObject, QPointF, QRunnable, Qt, QThreadPool, QTimer, Signal,
+                            Slot)
 from PySide6.QtGui import QAction, QActionGroup, QIcon, QKeySequence, QPainter
 from PySide6.QtWidgets import (
     QApplication,
@@ -580,7 +581,14 @@ class InteractionDiagramWidget(QWidget):
             self._set_style_field("exposure", "trail" if checked else "arc")
 
     def _configure_overflow_button(self) -> None:
-        """Keep the native hidden-actions control centred and off the edge."""
+        """Turn the native hidden-actions control into a "More actions" menu.
+
+        Qt's own extension expands the toolbar in place, which only works for a
+        toolbar docked in a QMainWindow; here, inside this widget, it showed
+        nothing, and the Style/Legend/Reshuffle drop-downs never travel well into
+        it anyway.  The button stays (Qt shows it exactly when something is
+        clipped) but opens a menu of whatever is clipped at that moment.
+        """
         button = self._toolbar.findChild(QToolButton, "qt_toolbar_ext_button")
         if button is None:
             return
@@ -590,11 +598,55 @@ class InteractionDiagramWidget(QWidget):
         button.setStyleSheet(
             "QToolButton { color: palette(text); border: 0; padding: 0;"
             " font-size: 18px; }"
+            " QToolButton::menu-indicator { image: none; width: 0; }"
         )
         button.setFixedWidth(28)
         button.setMinimumHeight(22)
         button.setToolButtonStyle(Qt.ToolButtonTextOnly)
         button.setToolTip("More actions")
+        self._overflow_menu = QMenu(button)
+        self._overflow_menu.aboutToShow.connect(self._fill_overflow_menu)
+        button.setMenu(self._overflow_menu)
+        button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        # Qt versions that wire the click to the in-place expansion get it cut
+        # here (a no-op when there is no such connection).  Never blockSignals():
+        # that also silences `pressed`, which is what opens a QToolButton's menu.
+        QObject.disconnect(button, SIGNAL("clicked(bool)"), None, None)
+
+    def _overflow_actions(self) -> list[QAction | None]:
+        """The toolbar entries Qt clipped, in order; None marks a group break."""
+        clipped: list[QAction | None] = []
+        for action in self._toolbar.actions():
+            if action.isSeparator():
+                if clipped and clipped[-1] is not None:
+                    clipped.append(None)
+                continue
+            widget = self._toolbar.widgetForAction(action)
+            if widget is not None and not widget.isVisible() and action.isVisible():
+                clipped.append(action)
+        while clipped and clipped[-1] is None:
+            clipped.pop()
+        return clipped
+
+    def _fill_overflow_menu(self) -> None:
+        menu = self._overflow_menu
+        menu.clear()
+        for action in self._overflow_actions():
+            if action is None:
+                menu.addSeparator()
+                continue
+            widget = self._toolbar.widgetForAction(action)
+            if isinstance(widget, QLabel):
+                continue  # status / rotate hint: text, not a command
+            # A drop-down (Style, Legend) or a split button (Reshuffle): the
+            # same actions in a submenu, so every choice stays one click away.
+            # Style and Legend are widgets with no text of their own.
+            choices = action.menu() or (widget.menu() if isinstance(widget, QToolButton) else None)
+            if choices is None:
+                menu.addAction(action)
+                continue
+            sub = menu.addMenu(action.text() or widget.text())
+            sub.addActions(choices.actions())
 
     # -- public API --------------------------------------------------------
 
