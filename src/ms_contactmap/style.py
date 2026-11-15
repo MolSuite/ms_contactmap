@@ -34,7 +34,9 @@ class DiagramStyle:
     surface: str = "line"
     exposure: str = "arc"
     metals: str = "star"
-    hydrophobic_lines: bool = True
+    #: Off by default: a pocket has many hydrophobic contacts, and their lines
+    #: bury the polar ones.  The residues still show; Style turns the lines on.
+    hydrophobic_lines: bool = False
 
     def __post_init__(self) -> None:
         for value, allowed in (

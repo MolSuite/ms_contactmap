@@ -22,6 +22,9 @@ def test_view_settings_round_trip_and_host_owned_action() -> None:
         "legend_rows": DEFAULT_LEGEND_ROWS,
     }
     assert not widget._configure_action.isVisible()  # no host, no entry
+    # Hydrophobic lines start off, and the Style menu says so.
+    assert widget.view_settings()["hydrophobic_lines"] is False
+    assert not widget._style_actions[("hydrophobic_lines", True)].isChecked()
 
     chosen = {**widget.view_settings(), "palette": "vivid", "legend_position": "top", "legend_rows": 2}
     widget.apply_view_settings({**chosen, "not_a_setting": 1})
