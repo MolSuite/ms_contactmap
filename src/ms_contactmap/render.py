@@ -1339,7 +1339,12 @@ def _route_label(inter, style) -> str:
     """
     name = ":".join(inter.residue_key.split(":")[:2])
     what = f"{inter.residue_key.split(':')[-1]} {name}"
-    if inter.protein_atom:
+    if inter.is_protein_group:
+        # The distance is centroid to centroid: naming one of the group's
+        # atoms would invite measuring from it.
+        ring = inter.kind == "pi_stacking" or (inter.kind == "pi_cation" and inter.ligand_is_donor)
+        what += " · ring centroid" if ring else " · charged group centroid"
+    elif inter.protein_atom:
         what += f" · atom {inter.protein_atom}"
     geometry = f"{inter.distance:.2f} Å" if inter.distance else ""
     if inter.protein_distance is not None:

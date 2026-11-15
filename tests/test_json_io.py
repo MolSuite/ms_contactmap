@@ -88,3 +88,16 @@ def test_json_keeps_a_group_contacts_protein_atoms(tmp_path):
     old, _, _ = load_json(tmp_path / "old.json")
     assert old.interactions[0].protein_atoms == ()
 
+
+def test_tooltip_names_the_centroid_for_a_group_contact():
+    from ms_contactmap.render import _route_label
+
+    ring = Interaction("pi_stacking", "A:227:PHE", (2,), 4.86, protein_atom="CG",
+                       protein_atoms=("CG", "CD1", "CD2", "CE1", "CE2", "CZ"))
+    assert "ring centroid" in _route_label(ring, ring.style)
+    assert "atom CG" not in _route_label(ring, ring.style)
+    bridge = Interaction("salt_bridge", "A:52:ASP", (2,), 3.9, protein_atom="OD1",
+                         protein_atoms=("OD1", "OD2"))
+    assert "charged group centroid" in _route_label(bridge, bridge.style)
+    hbond = Interaction("hbond", "A:10:SER", (2,), 2.8, protein_atom="OG")
+    assert "atom OG" in _route_label(hbond, hbond.style)
