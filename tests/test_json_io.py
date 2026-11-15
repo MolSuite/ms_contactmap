@@ -69,3 +69,22 @@ def test_json_roundtrip_is_self_contained(tmp_path):
     assert '"hbond_min_donor_angle_degree": 150.0' in text
     assert '"hbond_profile": "strong_geometric"' in text
     assert '"mol_block"' in text
+
+
+def test_json_keeps_a_group_contacts_protein_atoms(tmp_path):
+    diagram, layout = _document()
+    ring = ("CG", "CD1", "CD2", "CE1", "CE2", "CZ")
+    diagram.interactions = [Interaction(
+        "pi_stacking", diagram.interactions[0].residue_key, (2,), 4.86,
+        protein_atom="CG", protein_atoms=ring,
+    )]
+    restored, _, _ = load_json(save_json(tmp_path / "diagram.json", diagram, layout))
+    assert restored.interactions[0].protein_atoms == ring
+    assert restored.interactions[0].is_protein_group
+
+    # A file written before the field existed reads as a one-atom contact.
+    text = (tmp_path / "diagram.json").read_text().replace('"protein_atoms"', '"_unused"')
+    (tmp_path / "old.json").write_text(text)
+    old, _, _ = load_json(tmp_path / "old.json")
+    assert old.interactions[0].protein_atoms == ()
+

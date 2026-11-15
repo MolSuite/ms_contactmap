@@ -304,6 +304,17 @@ class Interaction:
     #: For a group contact (a salt bridge): the group atom nearest the protein
     #: in 3D, which is where the drawn line leaves the ligand.
     anchor_atom: int | None = None
+    #: For a group contact (pi-stacking, pi-cation, salt bridge): the names of
+    #: the protein group's atoms.  ``distance`` is measured from their centroid,
+    #: not from ``protein_atom`` (which is only the group's first atom), so a 3D
+    #: view must end its line there to show the same number.  Empty for a
+    #: contact to one protein atom.
+    protein_atoms: tuple[str, ...] = ()
+
+    @property
+    def is_protein_group(self) -> bool:
+        """``True`` when the protein end is a group centroid, not one atom."""
+        return len(self.protein_atoms) > 1
 
     @property
     def style(self) -> InteractionStyle:
