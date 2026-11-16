@@ -69,3 +69,35 @@ def test_json_roundtrip_is_self_contained(tmp_path):
     assert '"hbond_min_donor_angle_degree": 150.0' in text
     assert '"hbond_profile": "strong_geometric"' in text
     assert '"mol_block"' in text
+
+
+def test_json_keeps_a_group_contacts_protein_atoms(tmp_path):
+    diagram, layout = _document()
+    ring = ("CG", "CD1", "CD2", "CE1", "CE2", "CZ")
+    diagram.interactions = [Interaction(
+        "pi_stacking", diagram.interactions[0].residue_key, (2,), 4.86,
+        protein_atom="CG", protein_atoms=ring,
+    )]
+    restored, _, _ = load_json(save_json(tmp_path / "diagram.json", diagram, layout))
+    assert restored.interactions[0].protein_atoms == ring
+    assert restored.interactions[0].is_protein_group
+
+    # A file written before the field existed reads as a one-atom contact.
+    text = (tmp_path / "diagram.json").read_text().replace('"protein_atoms"', '"_unused"')
+    (tmp_path / "old.json").write_text(text)
+    old, _, _ = load_json(tmp_path / "old.json")
+    assert old.interactions[0].protein_atoms == ()
+
+
+def test_tooltip_names_the_centroid_for_a_group_contact():
+    from ms_contactmap.render import _route_label
+
+    ring = Interaction("pi_stacking", "A:227:PHE", (2,), 4.86, protein_atom="CG",
+                       protein_atoms=("CG", "CD1", "CD2", "CE1", "CE2", "CZ"))
+    assert "ring centroid" in _route_label(ring, ring.style)
+    assert "atom CG" not in _route_label(ring, ring.style)
+    bridge = Interaction("salt_bridge", "A:52:ASP", (2,), 3.9, protein_atom="OD1",
+                         protein_atoms=("OD1", "OD2"))
+    assert "charged group centroid" in _route_label(bridge, bridge.style)
+    hbond = Interaction("hbond", "A:10:SER", (2,), 2.8, protein_atom="OG")
+    assert "atom OG" in _route_label(hbond, hbond.style)

@@ -37,6 +37,10 @@ from .roles import Hit
 #: slow, and every atom it adds is one no criterion could ever reach.
 POCKET_RADIUS = 10.0
 
+#: Hits whose protein side is a group addressed by its centroid (see
+#: ``geometry._group_pairs``), so the Interaction carries the group's atom names.
+_GROUP_KINDS = frozenset({"pi_stacking", "pi_cation", "salt_bridge"})
+
 # First-shell metal-ligand limits.  The old generic 3.0 A search radius is
 # retained inside geometry.py as a candidate generator, then chemistry-specific
 # limits and coordination geometry decide which candidates form the sphere.
@@ -292,6 +296,10 @@ def detect_interactions(pdb_path, geom, serial_to_atom: dict[int, PdbAtom]):
                                      serial_to_atom[s].z) for s in hit.protein_atoms])
             anchor_atom = min(hit.ligand_atoms, key=lambda a: float(
                 np.min(np.linalg.norm(protein_xyz - ligand_xyz[a], axis=1))))
+        group_names: tuple[str, ...] = ()
+        if hit.kind in _GROUP_KINDS and len(hit.protein_atoms) > 1:
+            group_names = tuple(serial_to_atom[s].name for s in hit.protein_atoms
+                                if s in serial_to_atom)
         interactions.append(Interaction(
             kind=hit.kind,
             residue_key=residue_key,
@@ -304,6 +312,7 @@ def detect_interactions(pdb_path, geom, serial_to_atom: dict[int, PdbAtom]):
             protein_distance=hit.partner_distance,
             protein_is_donor=hit.protein_is_donor,
             anchor_atom=anchor_atom,
+            protein_atoms=group_names,
         ))
     return _refine(interactions), metal_legs, coordination, skipped
 

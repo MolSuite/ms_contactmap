@@ -76,6 +76,7 @@ def diagram_to_dict(diagram: Diagram) -> dict[str, Any]:
                 ),
                 "protein_is_donor": row.protein_is_donor,
                 "anchor_atom": row.anchor_atom,
+                "protein_atoms": list(row.protein_atoms),
             }
             for row in diagram.interactions
         ],
@@ -139,6 +140,7 @@ def diagram_from_dict(data: dict[str, Any]) -> Diagram:
             protein_is_donor=row.get("protein_is_donor"),
             anchor_atom=(int(row["anchor_atom"])
                          if row.get("anchor_atom") is not None else None),
+            protein_atoms=tuple(str(name) for name in row.get("protein_atoms") or ()),
         )
         for row in data.get("interactions", [])
     ]
