@@ -643,7 +643,7 @@ def _line_specs(problem, diagram: Diagram) -> _Lines:
 
 #: Rim-to-drawing gap of a residue glyph sitting in a concavity of the ligand,
 #: measured to atom centres and bonds: room for an atom label plus air.
-CONCAVE_MARGIN = 30.0
+CONCAVE_MARGIN = 46.0
 #: Margin the outer part of a strong line keeps from the drawn ligand.
 LINE_CLEARANCE = 10.0
 #: A line passing closer than this to a foreign atom centre reads as drawn
