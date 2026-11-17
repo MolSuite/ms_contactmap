@@ -26,7 +26,7 @@ def _shown(widget, width):
 def test_overflow_menu_lists_every_clipped_action_with_its_choices(app):
     widget = InteractionDiagramWidget()
     widget.show()
-    ext = _shown(widget, 420)
+    ext = _shown(widget, 200)
     assert ext.isVisible() and ext.menu() is widget._overflow_menu
 
     own_menus = [(m, m.title(), list(m.actions())) for m in
@@ -35,13 +35,10 @@ def test_overflow_menu_lists_every_clipped_action_with_its_choices(app):
     entries = {a.text(): a for a in widget._overflow_menu.actions() if not a.isSeparator()}
     clipped = [a for a in widget._overflow_actions() if a is not None]
     toolbar = widget._toolbar
-    # Everything clipped is in the menu, except text labels (status, rotate hint).
+    # Everything clipped is in the menu; the toolbar holds buttons only.
+    assert all(type(toolbar.widgetForAction(a)).__name__ == "QToolButton" for a in clipped)
     for action in clipped:
-        label = toolbar.widgetForAction(action)
-        # Style/Legend are widgets with no action text; Qt drops "…" from button labels.
-        name = action.text() or label.text()
-        if type(label).__name__ != "QLabel":
-            assert name in entries, name
+        assert action.text() in entries, action.text()
     # Drop-downs arrive as submenus with all their choices, toggles keep their state.
     legend = [a.text() for a in entries["Legend"].menu().actions()]
     assert legend[:2] == ["Position", "Horizontal rows"]
@@ -74,3 +71,20 @@ def test_no_overflow_button_when_everything_fits(app):
     widget = InteractionDiagramWidget()
     widget.show()
     assert not _shown(widget, 2400).isVisible()
+
+
+def test_toolbar_goes_vertical_and_icons_only(app):
+    widget = InteractionDiagramWidget()
+    widget.show()
+    _shown(widget, 900)
+    assert all(not a.icon().isNull() for a, _ in widget._icon_names)
+    widget.set_toolbar_layout(vertical=True)
+    assert widget._toolbar.orientation() == Qt.Vertical
+    assert widget._toolbar.toolButtonStyle() == Qt.ToolButtonTextUnderIcon
+    widget._toolbar_actions["icons_only=True"].trigger()
+    assert widget._toolbar.toolButtonStyle() == Qt.ToolButtonIconOnly
+    widget.set_toolbar_layout(vertical=False)
+    assert widget._toolbar.orientation() == Qt.Horizontal
+    assert widget._toolbar.toolButtonStyle() == Qt.ToolButtonIconOnly
+    # Status and rotate hint sit below the view, not in the bar.
+    assert widget._status_label.parent() is widget
