@@ -66,6 +66,7 @@ from .model import (
     segments_cross,
 )
 from . import style as st
+from .layout import open_bearings
 from .style import DiagramStyle
 
 # ---------------------------------------------------------------------------
@@ -837,12 +838,6 @@ def _ribbon_runs(diagram: Diagram, positions: dict[str, QPointF],
     entries = front
     if len(entries) < 2:
         return []
-    # A residue drawn in front of an exposed atom touches it (it was placed
-    # there by its contacts): the protein closes over that side, so the
-    # surface runs on and only the halo tells of the solvent.
-    exposed = [(b, half) for b, half in exposed
-               if not any(abs(_wrap(a - b)) <= half + math.atan2(DROPLET_RADIUS, r)
-                          for a, r, _ in entries)]
 
     runs: list[list[tuple[float, float, str, float]]] = [[entries[0]]]
     for prev, cur in zip(entries, entries[1:]):
@@ -926,33 +921,17 @@ def _ribbon_runs(diagram: Diagram, positions: dict[str, QPointF],
     return ribbons
 
 
-#: Exposure (fraction of an atom's own surface left free by the protein) above
-#: which the pocket surface is not drawn across that atom's bearing.
-RIBBON_OPEN_EXPOSURE = 0.5
 #: Samples (1 degree each) over which the surface fades into such a gap.
 RIBBON_CUT_FADE_SAMPLES = 14
 
 
 def _exposed_bearings(diagram: Diagram, ligand_coords, center: QPointF) -> list[tuple[float, float]]:
-    """``(bearing, half width)`` of every highly exposed ligand atom on the outside of the drawing.
-
-    An atom counts only near the ligand's outline at its bearing: one buried
-    in the middle of the 2D drawing opens nothing a reader could see.  The gap
-    is a bond wide on either side, so one exposed tip atom opens its group.
-    """
+    """``(bearing, half width)`` of every surface gap; see :func:`~ms_contactmap.layout.open_bearings`."""
     if not diagram.exposure or not ligand_coords:
         return []
     bond = _median_bond_length(diagram, ligand_coords)
-    gaps = []
-    for idx, fraction in diagram.exposure.items():
-        if fraction < RIBBON_OPEN_EXPOSURE or idx >= len(ligand_coords):
-            continue
-        dx, dy = ligand_coords[idx][0] - center.x(), ligand_coords[idx][1] - center.y()
-        distance, angle = math.hypot(dx, dy), math.atan2(dy, dx)
-        if distance < _ligand_reach(ligand_coords, center, angle) - bond:
-            continue
-        gaps.append((angle, math.atan2(bond, max(distance, bond))))
-    return gaps
+    return [(angle, half) for _, angle, half in
+            open_bearings(ligand_coords, diagram.exposure, bond, (center.x(), center.y()))]
 
 
 def _bearing_open(gaps: list[tuple[float, float]], angle: float) -> bool:

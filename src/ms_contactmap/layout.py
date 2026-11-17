@@ -197,6 +197,34 @@ class LayoutResult:
 # Geometry helpers
 # ---------------------------------------------------------------------------
 
+#: Exposure (fraction of an atom's own surface left free by the protein) above
+#: which the pocket surface is not drawn across that atom's bearing.
+OPEN_EXPOSURE = 0.5
+
+
+def open_bearings(coords, exposure: dict[int, float], bond: float,
+                  center=(0.0, 0.0)) -> list[tuple[int, float, float]]:
+    """``(atom, bearing, half width)`` of every highly exposed atom on the outside of the drawing.
+
+    An atom counts only near the ligand's outline at its bearing: one buried
+    in the middle of the 2D drawing opens nothing a reader could see.  The gap
+    is a bond wide on either side, so one exposed tip atom opens its group.
+    The renderer leaves the surface open there and the layout keeps residues out.
+    """
+    xy = np.asarray(coords, dtype=float).reshape(-1, 2) - np.asarray(center, dtype=float)
+    gaps = []
+    for idx, fraction in (exposure or {}).items():
+        if fraction < OPEN_EXPOSURE or idx >= len(xy):
+            continue
+        distance = math.hypot(*xy[idx])
+        angle = math.atan2(xy[idx][1], xy[idx][0])
+        reach = max(0.0, float((xy @ (math.cos(angle), math.sin(angle))).max()))
+        if distance < reach - bond:
+            continue
+        gaps.append((int(idx), angle, math.atan2(bond, max(distance, bond))))
+    return gaps
+
+
 def _convex_hull(points: np.ndarray) -> np.ndarray:
     """Counter-clockwise convex hull of ``points``, as indices (monotone chain)."""
     order = np.lexsort((points[:, 1], points[:, 0]))
@@ -327,6 +355,8 @@ class Problem:
     line_end_map: np.ndarray    # (l, n) free-position share of segment ends
     line_owner: np.ndarray      # (l, n) endpoints that own each drawn segment
     w: Weights = field(default_factory=Weights)
+    open_angle: np.ndarray = field(default_factory=lambda: np.zeros(0))  # (k,) open bearings
+    open_half: np.ndarray = field(default_factory=lambda: np.zeros(0))   # (k,) their half widths
 
     @property
     def n(self) -> int:
@@ -745,6 +775,7 @@ def build_problem(
         _cache["water_mask"], _cache["ligand_bonds"],
         _cache["anchor_atoms"], weights,
     )
+    opened = open_bearings(coords, diagram.exposure, weights.bond_px)
     return Problem(
         keys=_cache["keys"],
         ligand=coords,
@@ -780,6 +811,8 @@ def build_problem(
         line_end_map=_cache["line_end_map"],
         line_owner=_cache["line_owner"],
         w=weights,
+        open_angle=np.array([angle for _, angle, _ in opened]),
+        open_half=np.array([half for _, _, half in opened]),
     )
 
 

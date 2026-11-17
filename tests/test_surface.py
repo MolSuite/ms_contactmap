@@ -13,7 +13,9 @@ from ms_contactmap.render import _exposed_bearings, _ribbon_runs, centroid
 DATA = Path(__file__).resolve().parents[1] / "data"
 
 
-def _surface_length(diagram):
+def test_surface_breaks_at_exposed_atoms():
+    ensure_app()
+    diagram = build_diagram(DATA / "4ps5.pdb", "2TA", chain="A", resnum=201)
     result = solve_layout(diagram)
     positions = {k: QPointF(*xy) for k, xy in result.positions.items()}
     center = QPointF(*centroid(result.ligand_coords))
@@ -21,21 +23,7 @@ def _surface_length(diagram):
     drawn = sum(len(r.points) for r in _ribbon_runs(diagram, positions, center, result.ligand_coords))
     diagram.exposure = {}
     sealed = sum(len(r.points) for r in _ribbon_runs(diagram, positions, center, result.ligand_coords))
-    return drawn, sealed
-
-
-def test_surface_breaks_at_exposed_atoms():
-    # 4uwh: nothing is drawn below the exposed phenyl, so the surface opens there.
-    ensure_app()
-    drawn, sealed = _surface_length(build_diagram(DATA / "4uwh.pdb", "JXM", chain="A", resnum=1876))
     assert drawn < sealed
-
-
-def test_residue_in_front_closes_the_gap():
-    # 4ps5: every exposed bearing has a contacting residue drawn in front of it.
-    ensure_app()
-    drawn, sealed = _surface_length(build_diagram(DATA / "4ps5.pdb", "2TA", chain="A", resnum=201))
-    assert drawn == sealed
 
 
 def test_surface_keeps_off_the_ligand():
@@ -97,3 +85,20 @@ ACM N1 H1 SING
 """)
     assert cif_smiles(cif, "ACM") == Chem.CanonSmiles("CC(N)=O")
     assert cif_smiles(cif, "XXX") is None
+
+
+def test_residues_sit_beside_solvent_gaps():
+    """Exposure wins: no protein glyph is placed in front of an open gap."""
+    import math
+    ensure_app()
+    diagram = build_diagram(DATA / "4ps5.pdb", "2TA", chain="A", resnum=201)
+    result = solve_layout(diagram)
+    center = QPointF(*centroid(result.ligand_coords))
+    gaps = _exposed_bearings(diagram, result.ligand_coords, center)
+    assert gaps
+    for key, (x, y) in result.positions.items():
+        if diagram.residue(key).ref.residue_class in ("water", "metal"):
+            continue
+        angle = math.atan2(y - center.y(), x - center.x())
+        assert all(abs((angle - b + math.pi) % (2 * math.pi) - math.pi) > half
+                   for b, half in gaps), key
