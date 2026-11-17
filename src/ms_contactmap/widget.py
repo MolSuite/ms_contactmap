@@ -11,9 +11,9 @@ import math
 import time
 from pathlib import Path
 
-from PySide6.QtCore import (SIGNAL, QObject, QPointF, QRunnable, Qt, QThreadPool, QTimer, Signal,
+from PySide6.QtCore import (SIGNAL, QEvent, QObject, QPointF, QRunnable, Qt, QThreadPool, QTimer, Signal,
                             Slot)
-from PySide6.QtGui import QAction, QActionGroup, QIcon, QKeySequence, QPainter
+from PySide6.QtGui import QAction, QActionGroup, QColor, QIcon, QKeySequence, QPainter, QPalette
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -77,7 +77,6 @@ class DiagramView(QGraphicsView):
         self.setRenderHint(QPainter.SmoothPixmapTransform, True)
         self.setDragMode(QGraphicsView.RubberBandDrag)
         self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
-        self.setBackgroundBrush(Qt.white)
         # Wheel zoom and middle-drag pan move the diagram; scroll bars would only take room, and
         # near a fit one showing shrinks the viewport, the refit hides it, and the view jumps.
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -101,13 +100,19 @@ class DiagramView(QGraphicsView):
         # Hover details live on the viewport, not in the scene, so they never
         # reach an export.
         self._info = QLabel(self.viewport())
-        self._info.setStyleSheet(
-            "QLabel { background: rgba(255, 255, 255, 235); color: #26303a;"
-            " border: 1px solid #9aa4ae; border-radius: 6px; padding: 6px 10px; }")
+        self.apply_ink()
         self._info.setAttribute(Qt.WA_TransparentForMouseEvents)
         self._info.hide()
         #: Viewport corner for the info box, as (vertical, horizontal).
         self.info_corner = ("bottom", "right")
+
+    def apply_ink(self) -> None:
+        """Canvas and info box in the colours of :data:`render.INK`."""
+        ink = render.INK
+        self.setBackgroundBrush(QColor(ink.background))
+        self._info.setStyleSheet(
+            f"QLabel {{ background: {ink.table_fill}; color: {ink.table_text};"
+            f" border: 1px solid {ink.table_border}; border-radius: 6px; padding: 6px 10px; }}")
 
     def show_info(self, text: str) -> None:
         """Show ``text`` in the info box, or hide the box when it is empty."""
@@ -286,6 +291,8 @@ class InteractionDiagramWidget(QWidget):
         self._scene.selectionChanged.connect(self._on_selection_changed)
         self._view = DiagramView(self._scene, self)
         self._view.residueMoved.connect(self._on_residue_moved)
+        self._ink_dark: bool | None = None
+        self._sync_ink()
         # Empty state (set_complex): a message and a call to action instead of the view.
         self._prompt_label = QLabel(self)
         self._prompt_label.setAlignment(Qt.AlignCenter)
@@ -966,8 +973,11 @@ class InteractionDiagramWidget(QWidget):
     def fit(self) -> None:
         self._view.fit()
 
-    def export_png(self, path: str | Path, scale: float = 2.0, background: str | None = "#ffffff",
+    def export_png(self, path: str | Path, scale: float = 2.0, background: str | None = "theme",
                    dpi: float | None = None) -> Path:
+        """``background`` "theme" is the canvas colour; None is transparent."""
+        if background == "theme":
+            background = render.INK.background
         return export_mod.export_png(self._scene, path, scale=scale, background=background, dpi=dpi)
 
     def export_svg(self, path: str | Path) -> Path:
@@ -1120,6 +1130,21 @@ class InteractionDiagramWidget(QWidget):
             # Not from inside the routes item's own event handler: the
             # rebuild deletes it.
             QTimer.singleShot(0, self._rebuild)
+
+    def changeEvent(self, event) -> None:  # noqa: N802
+        super().changeEvent(event)
+        if event.type() in (QEvent.Type.PaletteChange, QEvent.Type.ApplicationPaletteChange):
+            self._sync_ink()
+
+    def _sync_ink(self) -> None:
+        """Draw light-on-dark when the application theme is dark."""
+        dark = self.palette().color(QPalette.ColorRole.Window).lightness() < 128
+        if dark == self._ink_dark:
+            return
+        self._ink_dark = dark
+        render.set_ink(dark)
+        self._view.apply_ink()
+        self._rebuild()
 
     def _rebuild(self) -> None:
         if self._diagram is None or self._layout is None:
