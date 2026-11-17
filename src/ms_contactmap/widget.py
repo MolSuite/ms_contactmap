@@ -11,15 +11,19 @@ import math
 import time
 from pathlib import Path
 
-from PySide6.QtCore import (SIGNAL, QEvent, QObject, QPointF, QRunnable, Qt, QThreadPool, QTimer, Signal,
-                            Slot)
-from PySide6.QtGui import QAction, QActionGroup, QColor, QIcon, QKeySequence, QPainter, QPalette
+from PySide6.QtCore import (SIGNAL, QByteArray, QEvent, QObject, QPointF, QRunnable, Qt, QThreadPool, QTimer,
+                            Signal, Slot)
+from PySide6.QtGui import (QAction, QActionGroup, QColor, QIcon, QImage, QKeySequence, QPainter, QPalette,
+                           QPixmap)
+from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
     QApplication,
+    QBoxLayout,
     QFileDialog,
     QGraphicsItem,
     QGraphicsScene,
     QGraphicsView,
+    QHBoxLayout,
     QLabel,
     QMenu,
     QPushButton,
@@ -49,6 +53,20 @@ RESIZE_FIT_DELAY_MS = 75
 
 #: One click of the rotate buttons.
 ROTATION_STEP = 15.0
+
+
+_ICONS = Path(__file__).with_name("icons")
+
+
+def _svg_icon(name: str, color: QColor) -> QIcon:
+    """A ``currentColor`` toolbar icon drawn in ``color``, rendered at 2x for HiDPI."""
+    data = (_ICONS / f"{name}.svg").read_bytes().replace(b"currentColor", color.name().encode())
+    image = QImage(48, 48, QImage.Format.Format_ARGB32_Premultiplied)
+    image.fill(0)
+    painter = QPainter(image)
+    QSvgRenderer(QByteArray(data)).render(painter)
+    painter.end()
+    return QIcon(QPixmap.fromImage(image))
 
 
 def _centroid(points: list[tuple[float, float]]) -> tuple[float, float]:
@@ -310,12 +328,13 @@ class InteractionDiagramWidget(QWidget):
         self._pages.addWidget(self._view)
         self._pages.addWidget(prompt)
 
-        self._status_label = QLabel("  Ready  ")
-        self._status_label.setMinimumWidth(170)
+        # Status and rotate hint live in a footer: the toolbar holds commands only.
+        self._status_label = QLabel("Ready")
         self._selection_label = QLabel()
         self._toolbar = QToolBar(self)
         self._toolbar.setContentsMargins(0, 0, 4, 0)
-        self._toolbar.setToolButtonStyle(Qt.ToolButtonTextOnly)
+        self._icons_only = False
+        self._icon_names: list[tuple[QAction, str]] = []
 
         self._solve_status_timer = QTimer(self)
         self._solve_status_timer.setInterval(100)
@@ -323,11 +342,21 @@ class InteractionDiagramWidget(QWidget):
         self._layout_pool = QThreadPool(self)
         self._layout_pool.setMaxThreadCount(1)
 
+        # Toolbar above the view, or at its left once set vertical.
+        self._body = QBoxLayout(QBoxLayout.Direction.TopToBottom)
+        self._body.setSpacing(0)
+        self._body.addWidget(self._toolbar)
+        self._body.addWidget(self._pages, 1)
+        footer = QHBoxLayout()
+        footer.setContentsMargins(6, 2, 6, 2)
+        footer.addWidget(self._status_label)
+        footer.addStretch(1)
+        footer.addWidget(self._selection_label)
         box = QVBoxLayout(self)
         box.setContentsMargins(0, 0, 0, 0)
         box.setSpacing(0)
-        box.addWidget(self._toolbar)
-        box.addWidget(self._pages)
+        box.addLayout(self._body, 1)
+        box.addLayout(footer)
 
         # Also exposed through QWidget.actions(), so a host can drop the same
         # actions into its own menu; right-click shows them here.
@@ -340,10 +369,6 @@ class InteractionDiagramWidget(QWidget):
         self._on_selection_changed()
 
     def _build_actions(self) -> None:
-        # Keep progress at the left edge: the selection hint at the far right
-        # can be clipped in a narrow host window.
-        self._toolbar.addWidget(self._status_label)
-        self._toolbar.addSeparator()
         # The rotate actions act on whatever is selected -- a metal turns its
         # coordination polygon, any other glyph swings around the ligand, and
         # with nothing selected the ligand itself turns.  One pair of buttons
@@ -360,77 +385,123 @@ class InteractionDiagramWidget(QWidget):
         self._backbone_action = QAction("Backbone", self)
         self._backbone_action.setCheckable(True)
         self._backbone_action.setChecked(True)
-        self._backbone_action.setShortcut(QKeySequence("C"))
-        self._backbone_action.setShortcutContext(Qt.WidgetWithChildrenShortcut)
-        self._backbone_action.setToolTip(
-            "Lines between sequence-consecutive residues  (C)")
         self._backbone_action.toggled.connect(self._apply_layers)
+        self._backbone_tip = "Lines between sequence-consecutive residues"
 
         self._trail_action = QAction("Exposure trail", self)
         self._trail_action.setCheckable(True)
-        self._trail_action.setShortcut(QKeySequence("E"))
-        self._trail_action.setShortcutContext(Qt.WidgetWithChildrenShortcut)
-        self._trail_action.setToolTip(
-            "Show solvent exposure as an arc over the exposed face instead "
-            "of a halo around the atom  (E)")
         self._trail_action.toggled.connect(self._on_trail_toggled)
-
-        for text, shortcut, slot in (
-            ("↺", "[", lambda: self.rotate_selection(-ROTATION_STEP)),
-            ("↻", "]", lambda: self.rotate_selection(ROTATION_STEP)),
-            ("Mirror", "M", self.mirror_ligand),
-            (None, None, None),
-            (self._backbone_action, None, None),
-            (self._trail_action, None, None),
-            (None, None, None),
-            (self._auto_action, None, None),
-            (None, None, None),
-            ("Reshuffle", "R", self.reshuffle),
-            ("Recalculate", "Ctrl+R", self.reset_layout),
-            ("Fit", "F", self.fit),
-            (None, None, None),
-            ("Export SVG…", "Ctrl+E", self._ask_export_svg),
-        ):
-            if text is None:
-                self._toolbar.addSeparator()
-                continue
-            action = text if isinstance(text, QAction) else QAction(text, self)
-            if shortcut:
-                action.setShortcut(QKeySequence(shortcut))
-                action.setShortcutContext(Qt.WidgetWithChildrenShortcut)
-                action.setToolTip(f"{action.text()}  ({shortcut})")
-            if slot is not None:
-                action.triggered.connect(slot)
-            if action.text() in {"↺", "↻", "Mirror", "Reshuffle", "Recalculate"}:
-                self._layout_actions.append(action)
-            self._toolbar.addAction(action)
-            self.addAction(action)
-            if action.text() == "Reshuffle":
-                self._reshuffle_action = action
 
         # One primary gesture, with the cheaper residues-only alternative in
         # the arrow menu.  The latter preserves the ligand depiction exactly.
+        self._reshuffle_action = QAction("Reshuffle", self)
         reshuffle_menu = QMenu("Reshuffle mode", self)
         reshuffle_menu.addAction("Ligand and residues", self.reshuffle)
-        residues_action = reshuffle_menu.addAction(
-            "Residues only", self.reshuffle_residues
-        )
+        residues_action = reshuffle_menu.addAction("Residues only", self.reshuffle_residues)
         residues_action.setShortcut(QKeySequence("Shift+R"))
         residues_action.setShortcutContext(Qt.WidgetWithChildrenShortcut)
         self.addAction(residues_action)
         self._layout_actions.append(residues_action)
         self._reshuffle_action.setMenu(reshuffle_menu)
-        reshuffle_button = self._toolbar.widgetForAction(self._reshuffle_action)
-        if isinstance(reshuffle_button, QToolButton):
-            reshuffle_button.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
 
-        self._build_style_menu()
-        self._build_legend_menu()
-        self._toolbar.addSeparator()
-        self._toolbar.addWidget(self._selection_label)
+        style = self._build_style_menu().menuAction()
+        legend = self._build_legend_menu().menuAction()
+        toolbar_menu = self._build_toolbar_menu().menuAction()
 
-    def _build_legend_menu(self) -> None:
-        """Add the position and horizontal row controls as one compact menu."""
+        # (action or text, icon, shortcut, slot, re-solves the layout, tooltip); None = group break
+        for item in (
+            ("Recalculate", "recalculate", "Ctrl+R", self.reset_layout, True,
+             "Solve the layout again from scratch"),
+            (self._reshuffle_action, "reshuffle", "R", self.reshuffle, True,
+             "Try another arrangement"),
+            (self._auto_action, "settle", None, None, False, None),
+            None,
+            ("Rotate left", "rotate_left", "[", lambda: self.rotate_selection(-ROTATION_STEP), True,
+             "Turn the selection, or the ligand when nothing is selected"),
+            ("Rotate right", "rotate_right", "]", lambda: self.rotate_selection(ROTATION_STEP), True,
+             "Turn the selection, or the ligand when nothing is selected"),
+            ("Mirror", "mirror", "M", self.mirror_ligand, True, "Mirror the ligand"),
+            None,
+            (self._backbone_action, "backbone", "C", None, False, self._backbone_tip),
+            (self._trail_action, "exposure", "E", None, False,
+             "Show solvent exposure as an arc over the exposed face instead of a halo"),
+            (style, "style", None, None, False, "Glyphs, colours, surface and exposure"),
+            (legend, "legend", None, None, False, "Place and arrange the legend"),
+            None,
+            ("Fit", "fit", "F", self.fit, False, "Fit the diagram to the view"),
+            ("Export SVG…", "export", "Ctrl+E", self._ask_export_svg, False,
+             "Save the diagram as SVG"),
+            None,
+            (toolbar_menu, "toolbar", None, None, False, "Toolbar buttons and position"),
+        ):
+            if item is None:
+                self._toolbar.addSeparator()
+                continue
+            text, icon, shortcut, slot, relayout, tip = item
+            action = text if isinstance(text, QAction) else QAction(text, self)
+            if shortcut:
+                action.setShortcut(QKeySequence(shortcut))
+                action.setShortcutContext(Qt.WidgetWithChildrenShortcut)
+            if tip:
+                action.setToolTip(f"{tip}  ({shortcut})" if shortcut else tip)
+            if slot is not None:
+                action.triggered.connect(slot)
+            if relayout and action not in self._layout_actions:
+                self._layout_actions.append(action)
+            self._icon_names.append((action, icon))
+            self._toolbar.addAction(action)
+            if action is not toolbar_menu:
+                self.addAction(action)
+            button = self._toolbar.widgetForAction(action)
+            if isinstance(button, QToolButton) and action.menu() is not None:
+                # Reshuffle runs on click with its modes on the arrow; the menus open at once.
+                button.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup
+                                    if action is self._reshuffle_action
+                                    else QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._sync_icons()
+        self.set_toolbar_layout()
+
+    def _build_toolbar_menu(self) -> QMenu:
+        """Icons with or without text, and the bar on top or at the left."""
+        menu = QMenu("Toolbar", self)
+        self._toolbar_actions: dict[str, QAction] = {}
+        for title, choices in (("buttons", (("Icons and text", False), ("Icons only", True))),
+                               ("position", (("Top (horizontal)", False), ("Left (vertical)", True)))):
+            group = QActionGroup(menu)
+            for label, value in choices:
+                action = menu.addAction(label)
+                action.setCheckable(True)
+                key = "icons_only" if title == "buttons" else "vertical"
+                action.triggered.connect(
+                    lambda checked=False, k=key, v=value: self.set_toolbar_layout(**{k: v}))
+                group.addAction(action)
+                self._toolbar_actions[f"{key}={value}"] = action
+            menu.addSeparator()
+        return menu
+
+    def set_toolbar_layout(self, *, icons_only: bool | None = None,
+                           vertical: bool | None = None) -> None:
+        """Show icons with text or icons only, and put the bar on top or at the left."""
+        if icons_only is not None:
+            self._icons_only = icons_only
+        if vertical is None:
+            vertical = self._toolbar.orientation() == Qt.Vertical
+        self._toolbar.setOrientation(Qt.Vertical if vertical else Qt.Horizontal)
+        self._body.setDirection(QBoxLayout.Direction.LeftToRight if vertical
+                                else QBoxLayout.Direction.TopToBottom)
+        self._toolbar.setToolButtonStyle(
+            Qt.ToolButtonIconOnly if self._icons_only
+            else Qt.ToolButtonTextUnderIcon if vertical else Qt.ToolButtonTextBesideIcon)
+        self._toolbar_actions[f"icons_only={self._icons_only}"].setChecked(True)
+        self._toolbar_actions[f"vertical={vertical}"].setChecked(True)
+
+    def _sync_icons(self) -> None:
+        color = self.palette().color(QPalette.ColorRole.ButtonText)
+        for action, name in self._icon_names:
+            action.setIcon(_svg_icon(name, color))
+
+    def _build_legend_menu(self) -> QMenu:
+        """The position and horizontal row controls as one compact menu."""
         self._legend_menu = QMenu("Legend", self)
         position_menu = self._legend_menu.addMenu("Position")
         position_group = QActionGroup(self)
@@ -465,16 +536,9 @@ class InteractionDiagramWidget(QWidget):
             rows_group.addAction(action)
             self._legend_row_actions[rows] = action
         self._legend_rows_menu.setEnabled(False)
+        return self._legend_menu
 
-        button = QToolButton(self._toolbar)
-        button.setText("Legend")
-        button.setToolTip("Place and arrange the legend")
-        button.setMenu(self._legend_menu)
-        button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        self._toolbar.addWidget(button)
-        self.addAction(self._legend_menu.menuAction())
-
-    def _build_style_menu(self) -> None:
+    def _build_style_menu(self) -> QMenu:
         """Appearance options.  Each one only redraws; none re-solves the layout."""
         menu = QMenu("Style", self)
         self._classic_action = menu.addAction("Classic look")
@@ -514,14 +578,7 @@ class InteractionDiagramWidget(QWidget):
         self._configure_action = menu.addAction("Settings…")
         self._configure_action.setVisible(False)  # shown once a host wires it
         self._sync_style_actions()
-
-        button = QToolButton(self._toolbar)
-        button.setText("Style")
-        button.setToolTip("Glyphs, colours, surface and exposure")
-        button.setMenu(menu)
-        button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        self._toolbar.addWidget(button)
-        self.addAction(menu.menuAction())
+        return menu
 
     @property
     def look(self) -> DiagramStyle | None:
@@ -642,17 +699,13 @@ class InteractionDiagramWidget(QWidget):
             if action is None:
                 menu.addSeparator()
                 continue
-            widget = self._toolbar.widgetForAction(action)
-            if isinstance(widget, QLabel):
-                continue  # status / rotate hint: text, not a command
             # A drop-down (Style, Legend) or a split button (Reshuffle): the
             # same actions in a submenu, so every choice stays one click away.
-            # Style and Legend are widgets with no text of their own.
-            choices = action.menu() or (widget.menu() if isinstance(widget, QToolButton) else None)
+            choices = action.menu()
             if choices is None:
                 menu.addAction(action)
                 continue
-            sub = menu.addMenu(action.text() or widget.text())
+            sub = menu.addMenu(action.icon(), action.text())
             sub.addActions(choices.actions())
 
     # -- public API --------------------------------------------------------
@@ -1054,13 +1107,13 @@ class InteractionDiagramWidget(QWidget):
             self._solving = False
             self._set_layout_controls_enabled(True)
             message = f"{type(exc).__name__}: {exc}"
-            self._status_label.setText(f"  Layout failed: {message}  ")
+            self._status_label.setText(f"Layout failed: {message}")
             self.layoutFailed.emit(message)
             return
         self._solving = False
         self._set_layout_controls_enabled(True)
         self._status_label.setText(
-            f"  {self._solve_operation} complete · {elapsed:.1f} s  "
+            f"{self._solve_operation} complete · {elapsed:.1f} s"
         )
         self.layoutFinished.emit(layout)
 
@@ -1076,7 +1129,7 @@ class InteractionDiagramWidget(QWidget):
         self._stop_solve_timers()
         self._solving = False
         self._set_layout_controls_enabled(True)
-        self._status_label.setText(f"  Layout failed: {message}  ")
+        self._status_label.setText(f"Layout failed: {message}")
         self.layoutFailed.emit(message)
 
     def _update_solve_status(self) -> None:
@@ -1084,7 +1137,7 @@ class InteractionDiagramWidget(QWidget):
             return
         elapsed = max(0.0, time.perf_counter() - self._solve_started)
         self._status_label.setText(
-            f"  {self._solve_operation}… {elapsed:.1f} s  "
+            f"{self._solve_operation}… {elapsed:.1f} s"
         )
 
     def _stop_solve_timers(self) -> None:
@@ -1135,6 +1188,8 @@ class InteractionDiagramWidget(QWidget):
         super().changeEvent(event)
         if event.type() in (QEvent.Type.PaletteChange, QEvent.Type.ApplicationPaletteChange):
             self._sync_ink()
+            if self._icon_names:
+                self._sync_icons()
 
     def _sync_ink(self) -> None:
         """Draw light-on-dark when the application theme is dark."""
@@ -1214,7 +1269,7 @@ class InteractionDiagramWidget(QWidget):
             what = f"{name} {code}"
             if self._diagram is not None and key in self._diagram.metal_coordination:
                 what += " (coordination sphere)"
-        self._selection_label.setText(f"  Rotate: {what}  ")
+        self._selection_label.setText(f"Rotate: {what}")
         if (key or "") != self._announced_key:
             self._announced_key = key or ""
             self.residueSelected.emit(self._announced_key)
