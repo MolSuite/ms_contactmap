@@ -837,6 +837,12 @@ def _ribbon_runs(diagram: Diagram, positions: dict[str, QPointF],
     entries = front
     if len(entries) < 2:
         return []
+    # A residue drawn in front of an exposed atom touches it (it was placed
+    # there by its contacts): the protein closes over that side, so the
+    # surface runs on and only the halo tells of the solvent.
+    exposed = [(b, half) for b, half in exposed
+               if not any(abs(_wrap(a - b)) <= half + math.atan2(DROPLET_RADIUS, r)
+                          for a, r, _ in entries)]
 
     runs: list[list[tuple[float, float, str, float]]] = [[entries[0]]]
     for prev, cur in zip(entries, entries[1:]):
