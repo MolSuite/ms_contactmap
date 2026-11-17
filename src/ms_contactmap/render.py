@@ -119,6 +119,12 @@ BACKBONE_MAX_SPAN = 260.0
 
 RIBBON_WIDTH = 8.0
 RIBBON_LIGAND_CLEARANCE = 24.0
+#: The pocket surface keeps further off the ligand than connectors do: at 24 px
+#: its edge touched atom labels (4ps5, 4uwh's O at ILE A:685).
+RIBBON_SURFACE_CLEARANCE = 40.0
+#: Softness, in px, of the ligand outline the surface keeps clear of.  A hard
+#: max over atoms has a corner wherever the farthest atom changes.
+RIBBON_OUTLINE_SOFTNESS = 6.0
 RIBBON_DROPLET_INSET = 46.0
 #: Radius of the final rolling probe.  The original 49 px radius erased useful
 #: pocket curvature; 18 px suppresses pixel-scale wobble while preserving the
@@ -862,12 +868,15 @@ def _ribbon_runs(diagram: Diagram, positions: dict[str, QPointF],
         sigma = (probe / mean_radius) / step
         kernel = _gaussian_samples(sigma)
         pad = len(kernel) // 2
-        smooth = np.convolve(np.pad(raw, (pad, pad), mode="edge"), kernel, mode="valid")
-        clear = np.array([
-            _ligand_reach(ligand_coords, center, float(angle)) + RIBBON_LIGAND_CLEARANCE
-            for angle in sample_angles
-        ])
-        smooth = np.maximum(smooth, clear)
+        def roll(values):
+            return np.convolve(np.pad(values, (pad, pad), mode="edge"), kernel, mode="valid")
+
+        clear = _soft_reach(ligand_coords, center, sample_angles) + RIBBON_SURFACE_CLEARANCE
+        smooth = raw
+        # Clamping after smoothing leaves a corner where the clamp takes over;
+        # a few roll-then-clamp passes round it off.
+        for _ in range(4):
+            smooth = np.maximum(roll(smooth), clear)
 
         # Waters and metals are pocket waypoints, not protein-surface
         # residues.  One can nevertheless sit at the same bearing as two
@@ -895,7 +904,8 @@ def _ribbon_runs(diagram: Diagram, positions: dict[str, QPointF],
             lift = max(0.0, required - float(smooth[at]))
             if lift > 0.0:
                 # Wide enough to clear the whole glyph, not just its centre.
-                sigma = max(0.14, 1.2 * reach / max(distance, 1.0))
+                # And wider the higher it lifts: a narrow tall bump is a spike.
+                sigma = max(0.14, (1.2 * reach + lift) / max(distance, 1.0))
                 smooth += lift * np.exp(-0.5 * ((sample_angles - metal_angle) / sigma) ** 2)
         pts = [
             QPointF(center.x() + radius * math.cos(angle),
@@ -960,6 +970,16 @@ def _exposed_bearings(diagram: Diagram, ligand_coords, center: QPointF) -> list[
 
 def _bearing_open(gaps: list[tuple[float, float]], angle: float) -> bool:
     return any(abs(_wrap(angle - bearing)) <= half for bearing, half in gaps)
+
+
+def _soft_reach(coords, center: QPointF, angles: np.ndarray) -> np.ndarray:
+    """:func:`_ligand_reach` at every angle, as a smooth upper bound (log-sum-exp)."""
+    rel = np.asarray(coords, dtype=float).reshape(-1, 2) - (center.x(), center.y())
+    proj = np.column_stack([np.cos(angles), np.sin(angles)]) @ rel.T
+    proj = np.column_stack([proj, np.zeros(len(angles))])
+    top = proj.max(axis=1)
+    tau = RIBBON_OUTLINE_SOFTNESS
+    return top + tau * np.log(np.exp((proj - top[:, None]) / tau).sum(axis=1))
 
 
 def _gaussian_samples(sigma: float) -> np.ndarray:
@@ -1606,6 +1626,30 @@ class LigandItem(QGraphicsSvgItem):
         self.setZValue(Z_LIGAND)
 
 
+def _charge_cations(mol, diagram: Diagram) -> None:
+    """Draw the ligand cations the detector used in their protonated form.
+
+    An amine is a cation by its pH-7 pKa, not by a formal charge in the input,
+    so a salt bridge or pi-cation contact could start from an N drawn neutral.
+    Acids get the same treatment in :func:`chem._ionise_acids`; this one is
+    drawing-only, as the detector already reads these groups as charged.
+    """
+    for inter in diagram.interactions:
+        if inter.kind not in ("salt_bridge", "pi_cation") or not inter.ligand_is_donor:
+            continue
+        atoms = [mol.GetAtomWithIdx(i) for i in inter.ligand_atoms if i < mol.GetNumAtoms()]
+        if any(a.GetFormalCharge() for a in atoms):
+            continue
+        # An amidine or guanidine takes its charge on the imine N.
+        nitrogens = sorted((a for a in atoms if a.GetAtomicNum() == 7),
+                           key=lambda a: -max((b.GetBondTypeAsDouble() for b in a.GetBonds()),
+                                              default=0))
+        if nitrogens:
+            nitrogens[0].SetFormalCharge(1)
+            nitrogens[0].SetNoImplicit(False)
+    mol.UpdatePropertyCache(strict=False)
+
+
 def _draw_ligand(diagram: Diagram, ligand_coords: list[tuple[float, float]]) -> LigandItem:
     """Render the ligand and reconcile RDKit's canvas with the layout's frame.
 
@@ -1621,6 +1665,7 @@ def _draw_ligand(diagram: Diagram, ligand_coords: list[tuple[float, float]]) -> 
     ``GetDrawCoords(i)`` maps onto ``ligand_coords[i]`` exactly.
     """
     mol = Chem.Mol(diagram.mol)
+    _charge_cations(mol, diagram)
     mol.RemoveAllConformers()
     conf = Chem.Conformer(mol.GetNumAtoms())
     for i, (x, y) in enumerate(ligand_coords):

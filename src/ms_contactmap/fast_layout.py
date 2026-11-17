@@ -57,6 +57,15 @@ def _priority(diagram: Diagram, key: str) -> tuple[int, int, int, str]:
     return (conductor_rank, -distinct, best, key)
 
 
+def _placed_water(problem, inter, placed_mask) -> int | None:
+    """Index of the placed water ``inter`` reaches ``key`` through, if any."""
+    try:
+        w = problem.keys.index(inter.via_water)
+    except ValueError:
+        return None
+    return w if placed_mask[w] else None
+
+
 def _angle_delta(a: np.ndarray | float, b: float) -> np.ndarray:
     return (np.asarray(a) - b + math.pi) % (2.0 * math.pi) - math.pi
 
@@ -131,6 +140,16 @@ def _place_discrete(problem, cache: dict, diagram: Diagram, glyph_radius: float,
             atom_ids = _interaction_atoms(diagram, key)
         atom_ids = [a for a in atom_ids if 0 <= a < len(problem.ligand)]
         anchors = problem.ligand[atom_ids] if atom_ids else problem.anchors[i:i + 1]
+        # A water-bridged line starts at the water, already placed: aiming at
+        # the ligand atom instead left the two legs as a fork off the water.
+        own = [inter for inter in diagram.interactions
+               if inter.residue_key == key and inter.kind != "hydrophobic"]
+        waters = [_placed_water(problem, inter, placed_mask) for inter in own if inter.via_water]
+        waters = [w for w in waters if w is not None]
+        if waters:
+            direct = [a for inter in own if not inter.via_water
+                      for a in inter.ligand_atoms if 0 <= a < len(problem.ligand)]
+            anchors = np.concatenate([problem.ligand[direct].reshape(-1, 2), p[waters]])
 
         residue = diagram.residue(key)
         is_water = residue.ref.residue_class == "water"
