@@ -22,7 +22,7 @@ sys.path.insert(0, ROOT)
 # geometry over model.py, and this test must keep working while the chem and
 # interaction modules are still being written.
 _pkg = types.ModuleType("ms_contactmap")
-_pkg.__path__ = [os.path.join(ROOT, "ms_contactmap")]
+_pkg.__path__ = [os.path.join(ROOT, "src", "ms_contactmap")]
 sys.modules.setdefault("ms_contactmap", _pkg)
 
 from ms_contactmap.layout import (  # noqa: E402

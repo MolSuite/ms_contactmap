@@ -275,6 +275,11 @@ class Residue:
         return self.ref.key
 
 
+#: Kinds whose ligand side is a ring or a delocalised system, so the drawn line
+#: leaves from the centroid.  Everything else starts on a single atom.
+RING_ANCHORED = frozenset({"pi_stacking", "pi_cation"})
+
+
 @dataclass
 class Interaction:
     """One protein-ligand contact, already mapped onto RDKit atom indices."""

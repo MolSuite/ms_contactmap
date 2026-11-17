@@ -245,22 +245,28 @@ def build_diagram(
             file=sys.stderr,
         )
 
-    # Explore rigid torsional flips between phosphate groups.  Interaction
-    # detection has already used the untouched 3D pose; this changes only the
-    # legibility of the resulting 2D coordination graph.
-    from .chem import phosphate_axis_variants
+    # Rigid torsional flips of the 2D depiction so each partner's lines can
+    # leave the ligand without crossing it.  Detection has already used the
+    # untouched 3D pose; this changes only the legibility of the drawing.
+    from .chem import torsion_flip_variants
+    from .model import RING_ANCHORED
 
-    metal_groups = [
-        [
-            atom
-            for inter in interactions
-            if inter.kind == "metal_coordination" and inter.residue_key == metal_key
-            for atom in inter.ligand_atoms
-        ]
-        for metal_key in sorted(coordination)
-    ]
-    views = phosphate_axis_variants(
-        geom.mol, [geom.coords_2d, *geom.alt_coords_2d], metal_groups
+    groups: dict[str, list[tuple[int, ...]]] = {}
+    for inter in interactions:
+        if inter.kind == "hydrophobic" or inter.residue_key not in drawn:
+            continue
+        ids = tuple(inter.ligand_atoms)
+        if not ids:
+            continue
+        if inter.kind in RING_ANCHORED:
+            anchors = [ids]
+        elif inter.kind == "metal_coordination":
+            anchors = [(i,) for i in ids]
+        else:
+            anchors = [(inter.anchor_atom if inter.anchor_atom in ids else ids[0],)]
+        groups.setdefault(inter.via_water or inter.residue_key, []).extend(anchors)
+    views = torsion_flip_variants(
+        geom.mol, [geom.coords_2d, *geom.alt_coords_2d], list(groups.values())
     )
 
     return Diagram(

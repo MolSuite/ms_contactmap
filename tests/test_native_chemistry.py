@@ -5,9 +5,10 @@ import json
 from pathlib import Path
 
 import numpy as np
+from rdkit import Chem
 
 from ms_contactmap import build_diagram
-from ms_contactmap.chem import load_ligand, phosphate_axis_variants
+from ms_contactmap.chem import load_ligand, torsion_flip_variants
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -39,7 +40,7 @@ def test_phosphate_depiction_rotates_whole_fragments_without_deformation():
         chain="A", resnum=1101,
     )
     original = [geom.coords_2d, *geom.alt_coords_2d]
-    variants = phosphate_axis_variants(geom.mol, original, [[1, 5, 10]])
+    variants = torsion_flip_variants(geom.mol, original, [[(1,), (5,), (10,)]])
     assert len(variants) == len(original)
     assert any(
         not np.allclose(np.asarray(before), np.asarray(after))
@@ -139,3 +140,28 @@ def test_metal_bound_histidine_is_not_a_cation():
     assert {"A:116:HIS", "A:118:HIS", "A:196:HIS", "A:263:HIS"} <= zinc_his
     assert not any(i.kind in ("salt_bridge", "pi_cation") and i.residue_key in zinc_his
                    for i in diagram.interactions)
+
+
+def test_torsion_flip_brings_a_bridged_pair_to_one_side():
+    from rdkit.Chem import rdDepictor
+
+    def sides(xy, atoms):
+        center = xy.mean(axis=0)
+        axis = np.linalg.svd(xy - center)[2][0]
+        rel = xy[atoms] - center
+        return np.sign(axis[0] * rel[:, 1] - axis[1] * rel[:, 0])
+
+    # One partner (a water, say) H-bonded to both hydroxyls.
+    for smiles, flips in (("CC(O)CCC(O)C", True), ("CC(O)CCCC(O)C", False)):
+        mol = Chem.MolFromSmiles(smiles)
+        rdDepictor.Compute2DCoords(mol)
+        before = mol.GetConformer().GetPositions()[:, :2]
+        hydroxyls = [a.GetIdx() for a in mol.GetAtoms() if a.GetSymbol() == "O"]
+        after = np.asarray(torsion_flip_variants(
+            mol, [before.tolist()], [[(o,) for o in hydroxyls]])[0])
+        assert len(set(sides(after, hydroxyls))) == 1, smiles
+        assert np.allclose(before, after) != flips, smiles
+        # Rigid fragments: every bond keeps its length.
+        ends = np.array([(b.GetBeginAtomIdx(), b.GetEndAtomIdx()) for b in mol.GetBonds()])
+        length = lambda xy: np.linalg.norm(xy[ends[:, 0]] - xy[ends[:, 1]], axis=1)
+        assert np.allclose(length(before), length(after))
