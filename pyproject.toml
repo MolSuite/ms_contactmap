@@ -34,6 +34,10 @@ dependencies = [
     "biopython >= 1.86"
 ]
 
+[project.optional-dependencies]
+# The --gui 3d panel: PyMOL embedded through MolSuite's Qt components.
+3d = ["ms_components"]
+
 [project.urls]
 Homepage = "https://github.com/MolSuite/ms_contactmap"
 Issues = "https://github.com/MolSuite/ms_contactmap/issues"

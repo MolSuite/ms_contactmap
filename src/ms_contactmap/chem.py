@@ -155,6 +155,60 @@ def _formula(symbols) -> str:
     return "".join(s if counts[s] == 1 else f"{s}{counts[s]}" for s in order)
 
 
+#: Fewer heavy atoms than this is an ion, a solvent or a fragment of one.
+MIN_LIGAND_ATOMS = 6
+#: Glycans, lipids and detergents: HETATM groups that are rarely the ligand of interest.
+NOT_LIGANDS = frozenset({
+    "NAG", "NDG", "BMA", "MAN", "GLC", "BGC", "GAL", "GLA", "FUC", "FUL", "SIA", "XYS", "XYP",
+    "CLR", "PLM", "OLA", "OLC", "STE", "MYR", "PEE", "PCW", "LDA", "BOG", "LMT", "DDM",
+    "12P", "15P", "PG4", "P33", "BU1", "UNX",
+})
+
+
+@dataclass(frozen=True)
+class LigandSite:
+    """One small-molecule HETATM residue: what ``load_ligand`` needs to pick it."""
+
+    resname: str
+    chain: str
+    resnum: int
+    heavy_atoms: int
+
+    def __str__(self) -> str:
+        return f"{self.resname} {self.chain}:{self.resnum} ({self.heavy_atoms} heavy atoms)"
+
+
+def find_ligands(atoms: list[PdbAtom], resname: str | None = None, chain: str | None = None,
+                 resnum: int | None = None) -> list[LigandSite]:
+    """Small-molecule ligand candidates in file order, optionally narrowed.
+
+    Water, metals, common additives and polymer residues are left out.
+    """
+    from .model import AA_CLASS, COMMON_ADDITIVES, METAL_NAMES, WATER_NAMES
+
+    skip = AA_CLASS.keys() | COMMON_ADDITIVES | METAL_NAMES | WATER_NAMES | NOT_LIGANDS
+    # Backbone N and C of every residue, to drop in-chain modified residues (MSE, SEP...).
+    ends = {(a.chain, a.resnum, a.name): np.array((a.x, a.y, a.z)) for a in atoms if a.name in ("N", "C")}
+
+    def linked(ch: str, num: int) -> bool:
+        pairs = (((ch, num, "N"), (ch, num - 1, "C")), ((ch, num, "C"), (ch, num + 1, "N")))
+        return any(a in ends and b in ends and np.linalg.norm(ends[a] - ends[b]) < 1.75 for a, b in pairs)
+
+    residues: dict[tuple[str, str, int, str], list[PdbAtom]] = {}
+    for atom in atoms:
+        if atom.hetatm and atom.element not in ("H", "D") and atom.resname.upper() not in skip:
+            residues.setdefault((atom.resname.upper(), *atom.res_id), []).append(atom)
+    sites = []
+    for (name, ch, num, _icode), members in residues.items():
+        if len(members) < MIN_LIGAND_ATOMS or linked(ch, num):
+            continue
+        if (resname and name != resname.strip().upper()) or (chain and ch != chain) or (
+                resnum is not None and num != int(resnum)):
+            continue
+        sites.append(LigandSite(name, ch, num, len(members)))
+    return sites
+
+
 def _pick_copy(atoms: list[PdbAtom], resname: str, chain, resnum) -> list[PdbAtom]:
     """Collect the HETATM records of one ligand copy.
 
