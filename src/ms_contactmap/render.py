@@ -120,18 +120,19 @@ BACKBONE_MAX_SPAN = 260.0
 RIBBON_WIDTH = 8.0
 RIBBON_LIGAND_CLEARANCE = 24.0
 #: The pocket surface keeps further off the ligand than connectors do: at 24 px
-#: its edge touched atom labels (4ps5, 4uwh's O at ILE A:685).
-RIBBON_SURFACE_CLEARANCE = 40.0
+#: its edge touched atom labels (4ps5, 4uwh's O at ILE A:685); 40 px still
+#: hugged the ligand too tightly.
+RIBBON_SURFACE_CLEARANCE = 55.0
 #: Radius of the disc rolled over the 2D ligand to close the clefts between
-#: its branches (about a water, at the drawing's bond length).
-RIBBON_LIGAND_PROBE = 36.0
+#: its branches.  A small one (36 px) left a thin, hungry-looking outline.
+RIBBON_LIGAND_PROBE = 100.0
 #: Arc-length spacing, in px, of the surface's points.
 RIBBON_ARC_STEP = 4.0
 #: Smoothing of the surface along its length (Gaussian sigma, px).
-RIBBON_SURFACE_PROBE_RADIUS = 18.0
+RIBBON_SURFACE_PROBE_RADIUS = 30.0
 #: How far that smoothing pulls a convex bulge in; the outline starts this
 #: much further out so the drawn surface keeps RIBBON_SURFACE_CLEARANCE.
-RIBBON_SMOOTHING_SHRINK = 5.0
+RIBBON_SMOOTHING_SHRINK = 8.0
 #: The styled surface is smoothed less: it follows the ligand more closely.
 STYLED_SURFACE_PROBE_RADIUS = 11.0
 #: Angular sampling interval for the radial surface reconstruction.
