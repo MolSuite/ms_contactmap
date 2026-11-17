@@ -72,6 +72,48 @@ class PdbAtom:
         return (self.chain, self.resnum, self.icode)
 
 
+_CIF_ORDERS = {"SING": Chem.BondType.SINGLE, "DOUB": Chem.BondType.DOUBLE,
+               "TRIP": Chem.BondType.TRIPLE, "AROM": Chem.BondType.AROMATIC}
+
+
+def cif_smiles(path, resname: str) -> str | None:
+    """SMILES of ``resname`` from the chemical-component tables of an mmCIF file.
+
+    Files from the PDB usually carry ``_chem_comp_atom``/``_chem_comp_bond``
+    for every ligand: the bond orders and charges a plain PDB lacks.  ``None``
+    for a PDB file, or a CIF without them.
+    """
+    if Path(path).suffix.lower() not in (".cif", ".mmcif"):
+        return None
+    from Bio.PDB.MMCIF2Dict import MMCIF2Dict
+    table = MMCIF2Dict(str(path))
+    if "_chem_comp_bond.comp_id" not in table:
+        return None
+    charges = table.get("_chem_comp_atom.charge")
+    mol = Chem.RWMol()
+    index = {}
+    for i, (comp, name, element) in enumerate(zip(table["_chem_comp_atom.comp_id"],
+                                                  table["_chem_comp_atom.atom_id"],
+                                                  table["_chem_comp_atom.type_symbol"])):
+        if comp != resname or element.upper() in ("H", "D"):
+            continue
+        atom = Chem.Atom(element.capitalize())
+        if charges and charges[i] not in ("?", "."):
+            atom.SetFormalCharge(int(float(charges[i])))
+        index[name] = mol.AddAtom(atom)
+    if not index:
+        return None
+    for comp, a, b, order in zip(table["_chem_comp_bond.comp_id"], table["_chem_comp_bond.atom_id_1"],
+                                 table["_chem_comp_bond.atom_id_2"], table["_chem_comp_bond.value_order"]):
+        if comp == resname and a in index and b in index:
+            mol.AddBond(index[a], index[b], _CIF_ORDERS.get(order.upper(), Chem.BondType.SINGLE))
+    try:
+        Chem.SanitizeMol(mol)
+    except Exception:  # noqa: BLE001 -- a broken table only loses the bond orders
+        return None
+    return Chem.MolToSmiles(mol)
+
+
 def structure_lines(path) -> list[str]:
     """The text of a PDB file, or of an mmCIF one rewritten as PDB records.
 
@@ -878,6 +920,8 @@ def load_ligand(
     """
     if smiles is not None and ligand is not None:
         raise ValueError("pass smiles or ligand, not both")
+    if smiles is None and ligand is None:
+        smiles = cif_smiles(pdb_path, resname)
 
     records = _pick_copy(read_pdb_atoms(pdb_path), resname, chain, resnum)
     heavy = [a for a in records if a.element not in ("H", "D")]

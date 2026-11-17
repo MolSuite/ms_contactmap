@@ -122,15 +122,17 @@ RIBBON_LIGAND_CLEARANCE = 24.0
 #: The pocket surface keeps further off the ligand than connectors do: at 24 px
 #: its edge touched atom labels (4ps5, 4uwh's O at ILE A:685).
 RIBBON_SURFACE_CLEARANCE = 40.0
-#: Softness, in px, of the ligand outline the surface keeps clear of.  A hard
-#: max over atoms has a corner wherever the farthest atom changes.
-RIBBON_OUTLINE_SOFTNESS = 6.0
-RIBBON_DROPLET_INSET = 46.0
-#: Radius of the final rolling probe.  The original 49 px radius erased useful
-#: pocket curvature; 18 px suppresses pixel-scale wobble while preserving the
-#: broad indentations made by the optimized residue positions.
+#: Radius of the disc rolled over the 2D ligand to close the clefts between
+#: its branches (about a water, at the drawing's bond length).
+RIBBON_LIGAND_PROBE = 36.0
+#: Arc-length spacing, in px, of the surface's points.
+RIBBON_ARC_STEP = 4.0
+#: Smoothing of the surface along its length (Gaussian sigma, px).
 RIBBON_SURFACE_PROBE_RADIUS = 18.0
-#: The styled surface rolls a smaller probe: it follows the pocket more closely.
+#: How far that smoothing pulls a convex bulge in; the outline starts this
+#: much further out so the drawn surface keeps RIBBON_SURFACE_CLEARANCE.
+RIBBON_SMOOTHING_SHRINK = 5.0
+#: The styled surface is smoothed less: it follows the ligand more closely.
 STYLED_SURFACE_PROBE_RADIUS = 11.0
 #: Angular sampling interval for the radial surface reconstruction.
 RIBBON_SAMPLE_STEP = math.radians(1.0)
@@ -793,6 +795,8 @@ class Ribbons(QGraphicsObject):
 def _ribbon_runs(diagram: Diagram, positions: dict[str, QPointF],
                  center: QPointF, ligand_coords: list[tuple[float, float]],
                  look: DiagramStyle | None = None) -> list[_Ribbon]:
+    from scipy.ndimage import gaussian_filter1d
+
     palette = None if look is None else look.palette
     probe = RIBBON_SURFACE_PROBE_RADIUS if look is None else STYLED_SURFACE_PROBE_RADIUS
     metal_reach = (DROPLET_RADIUS * STAR_REACH if look is not None and look.metals == "star"
@@ -843,6 +847,21 @@ def _ribbon_runs(diagram: Diagram, positions: dict[str, QPointF],
         runs[0] = [(a - 2 * math.pi, r, c)
                    for a, r, c in runs.pop()] + runs[0]
 
+    # Waters and metals are pocket waypoints, not protein-surface residues;
+    # the surface goes round them (a water with room for its number), so they
+    # join the ligand as discs before the probe rolls.
+    discs = []
+    for residue in diagram.residues:
+        q = positions.get(residue.key)
+        if q is None or residue.ref.residue_class not in ("metal", "water"):
+            continue
+        reach = metal_reach if residue.ref.residue_class == "metal" else water_reach
+        discs.append((q.x(), q.y(), max(0.0, reach + 10.0 - RIBBON_SURFACE_CLEARANCE)))
+    circle = np.arange(0.0, 2.0 * math.pi, RIBBON_SAMPLE_STEP)
+    outline = _ligand_surface(ligand_coords, center, circle,
+                              RIBBON_SURFACE_CLEARANCE + RIBBON_SMOOTHING_SHRINK,
+                              RIBBON_LIGAND_PROBE, discs)
+
     ribbons: list[_Ribbon] = []
     for run in runs:
         if len(run) < 2:
@@ -850,68 +869,29 @@ def _ribbon_runs(diagram: Diagram, positions: dict[str, QPointF],
         angles = ([run[0][0] - RIBBON_OVERHANG]
                   + [a for a, _, _ in run]
                   + [run[-1][0] + RIBBON_OVERHANG])
-        radii = [run[0][1]] + [r for _, r, _ in run] + [run[-1][1]]
         residue_classes = [run[0][2]] + [c for _, _, c in run] + [run[-1][2]]
         classes = [RESIDUE_STYLES[value].base if palette is None
                    else st.nature_color(value, "medium" if palette == "soft" else "vivid")
                    for value in residue_classes]
 
-        # Reconstruct a radial contour after optimization, then roll a probe
-        # twice the ligand probe over it.  Unlike an interpolating Catmull-Rom
-        # spline, this does not reproduce every local radial wobble or overshoot
-        # between two droplets at different depths.
         count = max(2, int(math.ceil((angles[-1] - angles[0]) / RIBBON_SAMPLE_STEP)) + 1)
         sample_angles = np.linspace(angles[0], angles[-1], count)
-        raw = np.interp(sample_angles, angles, np.asarray(radii) - RIBBON_DROPLET_INSET)
-        step = max(float(sample_angles[1] - sample_angles[0]), 1e-6)
-        mean_radius = max(float(np.mean(raw)), 1.0)
-        sigma = (probe / mean_radius) / step
-        kernel = _gaussian_samples(sigma)
-        pad = len(kernel) // 2
-        def roll(values):
-            return np.convolve(np.pad(values, (pad, pad), mode="edge"), kernel, mode="valid")
-
-        clear = _soft_reach(ligand_coords, center, sample_angles) + RIBBON_SURFACE_CLEARANCE
-        smooth = raw
-        # Clamping after smoothing leaves a corner where the clamp takes over;
-        # a few roll-then-clamp passes round it off.
-        for _ in range(4):
-            smooth = np.maximum(roll(smooth), clear)
-
-        # Waters and metals are pocket waypoints, not protein-surface
-        # residues.  One can nevertheless sit at the same bearing as two
-        # protein droplets; interpolation would then draw the ribbon through
-        # it.  Raise a small smooth local shoulder so the whole glyph, and a
-        # water's number, stays on the ligand-facing side of the surface.
-        for residue in diagram.residues:
-            if residue.ref.residue_class not in ("metal", "water"):
-                continue
-            reach = metal_reach if residue.ref.residue_class == "metal" else water_reach
-            metal = positions.get(residue.key)
-            if metal is None:
-                continue
-            dx, dy = metal.x() - center.x(), metal.y() - center.y()
-            metal_angle = math.atan2(dy, dx)
-            while metal_angle < sample_angles[0]:
-                metal_angle += 2.0 * math.pi
-            while metal_angle > sample_angles[-1]:
-                metal_angle -= 2.0 * math.pi
-            if metal_angle < sample_angles[0] or metal_angle > sample_angles[-1]:
-                continue
-            at = int(np.argmin(np.abs(sample_angles - metal_angle)))
-            distance = math.hypot(dx, dy)
-            required = distance + reach + 10.0
-            lift = max(0.0, required - float(smooth[at]))
-            if lift > 0.0:
-                # Wide enough to clear the whole glyph, not just its centre.
-                # And wider the higher it lifts: a narrow tall bump is a spike.
-                sigma = max(0.14, (1.2 * reach + lift) / max(distance, 1.0))
-                smooth += lift * np.exp(-0.5 * ((sample_angles - metal_angle) / sigma) ** 2)
-        pts = [
-            QPointF(center.x() + radius * math.cos(angle),
-                    center.y() + radius * math.sin(angle))
-            for angle, radius in zip(sample_angles, smooth)
-        ]
+        # The surface is the ligand's own: a probe rolled over the 2D drawing.
+        # Residues only colour it and say where it runs.
+        raw = np.interp(sample_angles, circle, outline, period=2.0 * math.pi)
+        # Smooth in the plane, by arc length: smoothing by angle does nothing
+        # where the surface passes close to the centre.  Resample evenly first.
+        xy = np.column_stack([center.x() + raw * np.cos(sample_angles),
+                              center.y() + raw * np.sin(sample_angles)])
+        arc = np.concatenate([[0.0], np.cumsum(np.hypot(*np.diff(xy, axis=0).T))])
+        even = np.linspace(0.0, arc[-1], max(2, int(arc[-1] / RIBBON_ARC_STEP) + 1))
+        xy = np.column_stack([gaussian_filter1d(np.interp(even, arc, xy[:, k]),
+                                                probe / RIBBON_ARC_STEP, mode="nearest")
+                              for k in (0, 1)])
+        bearing = np.unwrap(np.arctan2(xy[:, 1] - center.y(), xy[:, 0] - center.x()))
+        sample_angles = bearing + 2.0 * math.pi * round((sample_angles[0] - bearing[0])
+                                                        / (2.0 * math.pi))
+        pts = [QPointF(x, y) for x, y in xy]
         span = len(pts) - 1
         # Where the ligand meets the solvent the protein does not close over
         # it: the surface stops there, fading out like at its own ends.
@@ -972,24 +952,42 @@ def _bearing_open(gaps: list[tuple[float, float]], angle: float) -> bool:
     return any(abs(_wrap(angle - bearing)) <= half for bearing, half in gaps)
 
 
-def _soft_reach(coords, center: QPointF, angles: np.ndarray) -> np.ndarray:
-    """:func:`_ligand_reach` at every angle, as a smooth upper bound (log-sum-exp)."""
+def _ligand_surface(coords, center: QPointF, angles: np.ndarray,
+                    offset: float, probe: float, discs=()) -> np.ndarray:
+    """Radius, at every angle, of the 2D ligand's surface: the atoms (and
+    ``discs``, ``(x, y, radius)``) grown by ``offset`` and closed by a rolling
+    ``probe`` disc, which fills the clefts between branches.  Read as the
+    outermost boundary along each ray."""
+    from scipy.ndimage import distance_transform_edt, map_coordinates
+
+    cell = 1.0  # px
     rel = np.asarray(coords, dtype=float).reshape(-1, 2) - (center.x(), center.y())
-    proj = np.column_stack([np.cos(angles), np.sin(angles)]) @ rel.T
-    proj = np.column_stack([proj, np.zeros(len(angles))])
-    top = proj.max(axis=1)
-    tau = RIBBON_OUTLINE_SOFTNESS
-    return top + tau * np.log(np.exp((proj - top[:, None]) / tau).sum(axis=1))
-
-
-def _gaussian_samples(sigma: float) -> np.ndarray:
-    """Open-curve Gaussian kernel used by the final rolling-probe pass."""
-    if sigma <= 0.35:
-        return np.ones(1)
-    radius = max(1, int(math.ceil(3.0 * sigma)))
-    values = np.arange(-radius, radius + 1, dtype=float)
-    kernel = np.exp(-0.5 * (values / sigma) ** 2)
-    return kernel / kernel.sum()
+    discs = [(x - center.x(), y - center.y(), max(radius, cell)) for x, y, radius in discs]
+    reach = max([float(np.abs(rel).max())] + [max(abs(x), abs(y)) + r for x, y, r in discs])
+    span = reach + offset + 2 * probe + 4 * cell
+    n = int(math.ceil(2 * span / cell)) + 1
+    atoms = np.ones((n, n), dtype=bool)
+    ij = np.rint((rel + span) / cell).astype(int)
+    atoms[ij[:, 1], ij[:, 0]] = False
+    axis = np.arange(n) * cell - span
+    for x, y, radius in discs:
+        atoms[np.hypot(axis[None, :] - x, axis[:, None] - y) <= radius] = False
+    near = distance_transform_edt(atoms, sampling=cell)
+    grown = near <= offset + probe  # dilation by offset + probe ...
+    # ... then erosion by probe: inside where depth >= 0.  A continuous field,
+    # so the boundary is found between grid points, without pixel steps.
+    depth = distance_transform_edt(grown, sampling=cell) - probe
+    radii = np.arange(0.0, span, cell / 2)
+    xs = np.cos(angles)[:, None] * radii
+    ys = np.sin(angles)[:, None] * radii
+    field = map_coordinates(depth, [(ys + span) / cell, (xs + span) / cell], order=1)
+    # Outermost crossing per ray (the shape need not be star-shaped).
+    inside = field >= 0.0
+    last = np.minimum(len(radii) - 2, len(radii) - 1 - np.argmax(inside[:, ::-1], axis=1))
+    rows = np.arange(len(angles))
+    a, b = field[rows, last], field[rows, last + 1]
+    frac = np.clip(a / np.maximum(a - b, 1e-9), 0.0, 1.0)
+    return np.where(inside.any(axis=1), radii[last] + frac * (radii[1] - radii[0]), offset)
 
 
 # ---------------------------------------------------------------------------
