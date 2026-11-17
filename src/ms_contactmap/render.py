@@ -58,6 +58,7 @@ from .model import (
     LEGEND_LINE_ROWS,
     LEGEND_RESIDUE_ROWS,
     RESIDUE_STYLES,
+    RING_ANCHORED,
     Diagram,
     centroid,
     classify_residue,
@@ -95,7 +96,6 @@ DROPLET_LINE_GAP = 13.0
 SHADOW_OFFSET = 4.5
 SHADOW_LAYERS = ((6.0, 8), (4.0, 14), (2.0, 22), (0.0, 62))
 
-BOND_COLOR = "#303030"
 LIGAND_BOND_WIDTH = 2
 #: Heteroatom labels, in the same scene pixels as the residue captions -- the
 #: two sit side by side, so anything else reads as a mistake.  It has to be
@@ -110,7 +110,6 @@ LIGAND_CANVAS_MARGIN = 1.6
 #: (6wak's phosphates ran to -5.6 px on a 429 px canvas).  Padding is the slack
 #: RDKit itself honours; the similarity fit absorbs the scale it costs.
 LIGAND_CANVAS_PAD = 0.06
-BACKBONE_COLOR = QColor("#141414")
 BACKBONE_WIDTH = 3.0
 BACKBONE_BOW = 0.09
 #: Sequence context is a hint, not an interaction.  If consecutive residues
@@ -138,7 +137,6 @@ RIBBON_MAX_GAP = math.radians(58.0)
 RIBBON_FRONT_ANGLE = math.radians(20.0)
 RIBBON_BACK_ROW_GAP = 42.0
 
-HALO_COLOR = QColor(70, 70, 70)
 #: Halo radius as a fraction of the ligand bond length (~2.5 atom radii).
 HALO_RADIUS_FRAC = 0.56
 #: Multipliers on that radius for a barely-exposed and a fully-exposed atom.
@@ -161,10 +159,6 @@ HOVER_BOLD = 2.2
 #: Styled metal coordination: peak half-height and period of the wave, px.
 WAVE_AMPLITUDE = 3.6
 WAVE_LENGTH = 11.0
-
-#: Kinds whose ligand side is a ring or a delocalised system, so the route
-#: belongs at the centroid.  Everything else starts on a single atom.
-RING_ANCHORED = frozenset({"pi_stacking", "pi_cation"})
 
 ROUTE_ATOM_GAP = 11.0
 ROUTE_BEND = 0.17
@@ -223,11 +217,43 @@ TABLE_TEXT_PX = 12.0
 TABLE_ICON_RADIUS = 8.5
 TABLE_TEXT_OFFSET = 40.0
 TABLE_SECTION_GAP = 18.0
-TABLE_BORDER = QColor("#c9ced6")
-TABLE_FILL = QColor("#fbfbfc")
-TABLE_TEXT = QColor("#2b323b")
-TABLE_ICON_FILL = QColor("#e4e7eb")
-TABLE_ICON_OUTLINE = QColor("#6b7480")
+
+
+@dataclass(frozen=True)
+class Ink:
+    """The neutral colours, which follow the application theme.
+
+    Residue fills and interaction colours are mid-tones that read on either
+    background, so they stay put; everything drawn in "black" lives here.
+    """
+
+    dark: bool
+    background: str
+    bond: str           #: ligand bonds
+    text: str           #: captions drawn on the canvas, not on a glyph
+    backbone: str
+    halo: str           #: exposure halo and trail
+    legend_text: str
+    table_border: str
+    table_fill: str
+    table_text: str
+    table_icon_fill: str
+    table_icon_outline: str
+
+
+LIGHT_INK = Ink(False, "#ffffff", "#303030", st.TEXT_COLOR, "#141414", "#464646",
+                "#101010", "#c9ced6", "#fbfbfc", "#2b323b", "#e4e7eb", "#6b7480")
+DARK_INK = Ink(True, "#1f2329", "#d6dbe1", "#d6dbe1", "#c4cad2", "#aab2bc",
+               "#e6e9ed", "#4a525c", "#282d34", "#dde1e6", "#3a414a", "#9aa3ad")
+#: The ink new scenes are drawn with; one for the whole application, as the
+#: theme is.  Switch it with :func:`set_ink` and rebuild.
+INK = LIGHT_INK
+
+
+def set_ink(dark: bool) -> None:
+    """Draw the following scenes for a dark (or light) background."""
+    global INK
+    INK = DARK_INK if dark else LIGHT_INK
 
 Z_HALOS, Z_RIBBONS, Z_BACKBONE, Z_ROUTES = -40, -30, -20, -10
 Z_LIGAND, Z_DROPLETS, Z_LEGEND = 0, 10, 20
@@ -604,7 +630,7 @@ class SolventHalos(QGraphicsObject):
         painter.setBrush(Qt.BrushStyle.NoBrush)
         for spot in self._spots:
             r = self._radius_of(spot) * (1.0 + TRAIL_OFFSET)
-            color = QColor(HALO_COLOR)
+            color = QColor(INK.halo)
             color.setAlpha(int(38 + 92 * spot.fraction))
             pen = QPen(color, TRAIL_WIDTH * (0.45 + 0.55 * spot.fraction))
             pen.setCapStyle(Qt.PenCapStyle.RoundCap)
@@ -647,7 +673,7 @@ def halo_gradient(center: QPointF, radius: float, gain: float = 1.0) -> QRadialG
     """The ring profile measured off the pyrrolidine halos in 4ps5.png."""
     g = QRadialGradient(center, radius)
     for stop, alpha in ((0.0, 20), (0.30, 15), (0.52, 46), (0.68, 34), (0.86, 12), (1.0, 0)):
-        c = QColor(HALO_COLOR)
+        c = QColor(INK.halo)
         c.setAlpha(min(255, round(alpha * gain)))
         g.setColorAt(stop, c)
     return g
@@ -665,7 +691,7 @@ def _paint_halo_wedge(painter: QPainter, center: QPointF, radius: float,
     """
     g = QRadialGradient(center, radius)
     for stop, alpha in ARC_PROFILE:
-        c = QColor(HALO_COLOR)
+        c = QColor(INK.halo)
         c.setAlpha(round(alpha * gain / ARC_FEATHER))
         g.setColorAt(stop, c)
     painter.setBrush(QBrush(g))
@@ -914,7 +940,7 @@ class BackboneConnectors(QGraphicsObject):
 
     def paint(self, painter: QPainter, option, widget=None) -> None:
         pen = (QPen(STYLED_BACKBONE_COLOR, STYLED_BACKBONE_WIDTH) if self._styled
-               else QPen(BACKBONE_COLOR, BACKBONE_WIDTH))
+               else QPen(QColor(INK.backbone), BACKBONE_WIDTH))
         pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         painter.setPen(pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -1570,6 +1596,9 @@ def _draw_ligand(diagram: Diagram, ligand_coords: list[tuple[float, float]]) -> 
         opts.scaleBondWidth = False
         opts.padding = LIGAND_CANVAS_PAD
         opts.fixedFontSize = int(round(LIGAND_FONT_PX))
+        if INK.dark:
+            rdMolDraw2D.SetDarkMode(opts)
+            opts.clearBackground = False
         drawer.DrawMolecule(prepared)
         drawer.FinishDrawing()
         drawn = [drawer.GetDrawCoords(i) for i in range(len(ligand_coords))]
@@ -1578,7 +1607,7 @@ def _draw_ligand(diagram: Diagram, ligand_coords: list[tuple[float, float]]) -> 
             break
         width, height = width * scale, height * scale
 
-    svg = _BOND_ELEMENT.sub(lambda m: _HEX.sub(BOND_COLOR, m.group(0)), drawer.GetDrawingText())
+    svg = _BOND_ELEMENT.sub(lambda m: _HEX.sub(INK.bond, m.group(0)), drawer.GetDrawingText())
     item = LigandItem(svg, {i: QPointF(*ligand_coords[i]) for i in range(len(ligand_coords))})
     item.setScale(scale)
     item.setPos(dx, dy)
@@ -1709,7 +1738,7 @@ class ResidueDroplet(QGraphicsObject):
         if self.is_water:
             _paint_sphere(painter, QPointF(0, 0), self.radius, "water")
             painter.setFont(_font(DROPLET_CODE_PX, DROPLET_LETTER_SPACING))
-            painter.setPen(QColor(self.style.text))
+            painter.setPen(QColor(INK.text))
             painter.drawText(
                 QRectF(self.radius + WATER_LABEL_GAP, -DROPLET_CODE_PX,
                        self._label_width(), 2 * DROPLET_CODE_PX),
@@ -1768,6 +1797,7 @@ class ResidueDroplet(QGraphicsObject):
         name, code = self.residue.ref.label_lines
         painter.setPen(QColor(fill.text))
         if self.is_water:
+            painter.setPen(QColor(INK.text))     # beside the sphere, on the canvas
             painter.setFont(_font(DROPLET_CODE_PX))
             painter.drawText(
                 QRectF(self.radius + WATER_LABEL_GAP, -DROPLET_CODE_PX,
@@ -1895,7 +1925,7 @@ class Legend(QGraphicsObject):
                     painter.drawText(QRectF(cx - r, y - r * 0.55, 2 * r, r * 1.4),
                                      Qt.AlignmentFlag.AlignCenter, "!")
 
-                painter.setPen(QColor("#101010"))
+                painter.setPen(QColor(INK.legend_text))
                 painter.setFont(font)
                 painter.drawText(QPointF(x + LEGEND_TEXT_OFFSET, y + metrics.capHeight() / 2), label)
 
@@ -2007,14 +2037,14 @@ class LegendTable(QGraphicsObject):
             return
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         box = self.boundingRect().adjusted(0.5, 0.5, -0.5, -0.5)
-        painter.setPen(QPen(TABLE_BORDER, 1.0))
-        painter.setBrush(TABLE_FILL)
+        painter.setPen(QPen(QColor(INK.table_border), 1.0))
+        painter.setBrush(QColor(INK.table_fill))
         painter.drawRoundedRect(box, 8.0, 8.0)
 
         metrics = QFontMetricsF(self._text_font)
         for i, ((name, rows), origin) in enumerate(zip(self._sections, self._origins())):
             if i:
-                painter.setPen(QPen(TABLE_BORDER, 1.0))
+                painter.setPen(QPen(QColor(INK.table_border), 1.0))
                 if self._stacked:
                     y = origin.y() - TABLE_SECTION_GAP / 2
                     painter.drawLine(QPointF(TABLE_PAD, y), QPointF(box.right() - TABLE_PAD, y))
@@ -2022,13 +2052,13 @@ class LegendTable(QGraphicsObject):
                     x = origin.x() - TABLE_SECTION_GAP * 0.75
                     painter.drawLine(QPointF(x, TABLE_PAD), QPointF(x, box.bottom() - TABLE_PAD))
             painter.setFont(self._title_font)
-            painter.setPen(TABLE_TEXT)
+            painter.setPen(QColor(INK.table_text))
             painter.drawText(QPointF(origin.x(), origin.y() + TABLE_TITLE_PX), name)
             for r, (kind, payload, label) in enumerate(rows):
                 y = origin.y() + TABLE_TITLE_PX + 10.0 + TABLE_ROW_PITCH * (r + 0.5)
                 self._paint_icon(painter, QPointF(origin.x() + 14.0, y), kind, payload)
                 painter.setFont(self._text_font)
-                painter.setPen(TABLE_TEXT)
+                painter.setPen(QColor(INK.table_text))
                 painter.drawText(QPointF(origin.x() + TABLE_TEXT_OFFSET,
                                          y + metrics.capHeight() / 2), label)
 
@@ -2036,8 +2066,8 @@ class LegendTable(QGraphicsObject):
         r = TABLE_ICON_RADIUS
         if kind == "shape":
             polygon, _ = glyph_polygon(payload, r)
-            painter.setPen(QPen(TABLE_ICON_OUTLINE, 1.0))
-            painter.setBrush(TABLE_ICON_FILL)
+            painter.setPen(QPen(QColor(INK.table_icon_outline), 1.0))
+            painter.setBrush(QColor(INK.table_icon_fill))
             painter.drawPolygon(polygon.translated(at.x(), at.y() - (0.1 * r if payload == "drop" else 0)))
         elif kind == "swatch":
             if isinstance(payload, tuple):
@@ -2099,7 +2129,7 @@ class LegendTable(QGraphicsObject):
         elif kind == "exposure" and payload == "trail":
             painter.setBrush(Qt.BrushStyle.NoBrush)
             center = QPointF(at.x(), at.y() + r * 0.6)
-            pen = QPen(HALO_COLOR, TRAIL_WIDTH * 0.8)
+            pen = QPen(QColor(INK.halo), TRAIL_WIDTH * 0.8)
             pen.setCapStyle(Qt.PenCapStyle.RoundCap)
             painter.setPen(pen)
             painter.drawPath(_arc_path(center, r * 0.8,

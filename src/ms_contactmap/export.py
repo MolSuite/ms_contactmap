@@ -112,6 +112,10 @@ def export_svg(scene: QGraphicsScene, path: str | Path, title: str = "") -> Path
 
     painter = QPainter(generator)
     painter.setRenderHint(QPainter.Antialiasing, True)
+    from .render import INK
+
+    if INK.dark:    # light-on-transparent would vanish on a white page
+        painter.fillRect(QRectF(0, 0, rect.width(), rect.height()), QColor(INK.background))
     with _uncached(scene):
         scene.render(painter, QRectF(0, 0, rect.width(), rect.height()), rect)
     painter.end()
