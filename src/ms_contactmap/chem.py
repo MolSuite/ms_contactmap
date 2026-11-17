@@ -245,193 +245,187 @@ def _spin(coords: np.ndarray, a: float, b: float) -> np.ndarray:
     return coords @ rx.T @ ry.T
 
 
-def phosphate_axis_variants(
+#: A flip must clear about half an interaction-line crossing to be taken, so
+#: the RDKit depiction is kept unless a torsion really helps a line.
+FLIP_GAIN = 50_000.0
+
+
+def _flip_axes(mol: Chem.Mol) -> list[tuple[int, int, np.ndarray]]:
+    """Acyclic single bonds a 2D torsional flip may turn about.
+
+    Each axis is ``(i, j, moving)`` with ``moving`` the smaller side.  Bonds to
+    a terminal atom are skipped (the flip would change nothing), and so are
+    C(=X)-N/O bonds: flipping an amide or ester bond draws the trans group as
+    cis, which a chemist reads as a different conformation.
+    """
+    adjacency = [[nb.GetIdx() for nb in atom.GetNeighbors()] for atom in mol.GetAtoms()]
+
+    def side(start: int, blocked: int) -> list[int]:
+        seen, stack = {start}, [start]
+        while stack:
+            atom = stack.pop()
+            for other in adjacency[atom]:
+                if other not in seen and not (atom == start and other == blocked):
+                    seen.add(other)
+                    stack.append(other)
+        return sorted(seen)
+
+    def carbonyl_like(atom: Chem.Atom) -> bool:
+        return atom.GetAtomicNum() == 6 and any(
+            bond.GetBondType() == Chem.BondType.DOUBLE
+            and bond.GetOtherAtom(atom).GetAtomicNum() in (7, 8, 16)
+            for bond in atom.GetBonds()
+        )
+
+    axes = []
+    for bond in mol.GetBonds():
+        if bond.GetBondType() != Chem.BondType.SINGLE or bond.IsInRing():
+            continue
+        a, b = bond.GetBeginAtom(), bond.GetEndAtom()
+        if a.GetDegree() < 2 or b.GetDegree() < 2:
+            continue
+        if (carbonyl_like(a) and b.GetAtomicNum() in (7, 8)) \
+                or (carbonyl_like(b) and a.GetAtomicNum() in (7, 8)):
+            continue
+        i, j = a.GetIdx(), b.GetIdx()
+        left, right = side(i, j), side(j, i)
+        axes.append((i, j, np.asarray(left if len(left) <= len(right) else right)))
+    return axes
+
+
+def torsion_flip_variants(
     mol: Chem.Mol,
     views: list[list[tuple[float, float]]],
-    metal_groups: list[list[int]],
+    groups: list[list[tuple[int, ...]]],
 ) -> list[list[tuple[float, float]]]:
-    """Choose rigid phosphate-chain flips that clear metal interaction lines.
+    """Flip ligand fragments so every partner's lines can leave the drawing.
 
     Rotation about a bond has no literal depth in a 2D drawing.  Its standard
     depiction equivalent is to reflect the complete fragment on one side of
-    that bond across the bond axis.  Every phosphate and every substituent
-    therefore remains rigid; only the torsional relationship between adjacent
-    phosphate groups changes.  This is intentionally different from moving a
-    terminal oxygen around phosphorus, which deforms the group and is wrong.
+    that bond across the bond axis: each fragment stays rigid, only the
+    torsion between them changes.  A water bridging two carbonyls that the
+    depiction points to opposite sides of a chain, for example, can only be
+    drawn with a line across the ligand until one carbonyl is flipped over.
 
-    For each existing RDKit depiction we enumerate the few P-X bridge flips
-    (X is the O or N joining two phosphorus atoms) and retain the variant whose
-    virtual metal-coordination rays cross the ligand least.  The untouched
-    depiction is one of the candidates, so a flip is never mandatory.
+    ``groups`` holds one entry per partner glyph (residue, water or metal),
+    listing its line anchors: one atom, or a ring whose centroid starts the
+    line.  Each depiction is improved greedily, one flip at a time, while a
+    flip clears a crossing; the untouched depiction wins every tie.
     """
-    if not metal_groups:
-        return views
-    bonds = [(b.GetBeginAtomIdx(), b.GetEndAtomIdx()) for b in mol.GetBonds()]
-    adjacency = {i: set() for i in range(mol.GetNumAtoms())}
-    for i, j in bonds:
-        adjacency[i].add(j)
-        adjacency[j].add(i)
-
-    def component(start: int, cut: tuple[int, int]) -> set[int]:
-        seen, stack = set(), [start]
-        blocked = {cut, cut[::-1]}
-        while stack:
-            atom = stack.pop()
-            if atom in seen:
-                continue
-            seen.add(atom)
-            stack.extend(
-                other for other in adjacency[atom]
-                if (atom, other) not in blocked and other not in seen
-            )
-        return seen
-
-    # Every P-X bond where X itself joins two phosphorus atoms is a true axis
-    # between phosphate groups.  Reflect the smaller graph component; the two
-    # axis atoms remain fixed because they lie on the reflection line.
-    axes: list[tuple[int, int, tuple[int, ...]]] = []
-    for bond in mol.GetBonds():
-        a, b = bond.GetBeginAtom(), bond.GetEndAtom()
-        phosphorus, bridge = (a, b) if a.GetAtomicNum() == 15 else (b, a)
-        if phosphorus.GetAtomicNum() != 15 or bridge.GetAtomicNum() not in (7, 8):
-            continue
-        if sum(n.GetAtomicNum() == 15 for n in bridge.GetNeighbors()) != 2:
-            continue
-        i, j = phosphorus.GetIdx(), bridge.GetIdx()
-        left, right = component(i, (i, j)), component(j, (i, j))
-        moving = left if len(left) <= len(right) else right
-        axes.append((i, j, tuple(sorted(moving))))
-
+    groups = [g for g in groups if g]
+    axes = _flip_axes(mol) if groups else []
     if not axes:
         return views
+    n_atoms = mol.GetNumAtoms()
+    bonds = np.array([(b.GetBeginAtomIdx(), b.GetEndAtomIdx()) for b in mol.GetBonds()],
+                     dtype=int).reshape(-1, 2)
+    shares_atom = (bonds[:, None, 0] == bonds[None, :, 0]) | (bonds[:, None, 0] == bonds[None, :, 1]) \
+        | (bonds[:, None, 1] == bonds[None, :, 0]) | (bonds[:, None, 1] == bonds[None, :, 1])
+    bond_pairs = np.triu(~shares_atom, 1)
+    bonded = np.eye(n_atoms, dtype=bool)
+    incident = np.zeros((n_atoms, len(bonds)), dtype=bool)
+    incident[bonds[:, 0], np.arange(len(bonds))] = incident[bonds[:, 1], np.arange(len(bonds))] = True
+    bonded[bonds[:, 0], bonds[:, 1]] = bonded[bonds[:, 1], bonds[:, 0]] = True
 
-    def reflect(xy: np.ndarray, axis: tuple[int, int, tuple[int, ...]]) -> np.ndarray:
+    # Per group: anchor atoms (a ring is all of its atoms, drawn from its
+    # centroid) and the bonds/atoms its own lines may touch.
+    prepared = []
+    for group in groups:
+        anchors = [tuple(int(i) for i in anchor if 0 <= int(i) < n_atoms) for anchor in group]
+        anchors = list(dict.fromkeys(a for a in anchors if a))
+        if not anchors:
+            continue
+        own_bonds = np.array([np.isin(bonds, a).all(axis=1) if len(a) > 1
+                              else np.isin(bonds, a).any(axis=1) for a in anchors])
+        own_atoms = np.zeros((len(anchors), n_atoms), dtype=bool)
+        for k, anchor in enumerate(anchors):
+            own_atoms[k, list(anchor)] = True
+        prepared.append((anchors, own_bonds, own_atoms))
+    fan_offset = np.linspace(-0.65, 0.65, 27)
+
+    def cross2(u, v):
+        return u[..., 0] * v[..., 1] - u[..., 1] * v[..., 0]
+
+    def score(xy: np.ndarray) -> float:
+        start, end = xy[bonds[:, 0]], xy[bonds[:, 1]]
+        vector = end - start
+        unit = float(np.median(np.linalg.norm(vector, axis=1))) if len(bonds) else 1.5
+        # A flip that folds the ligand onto itself is never readable.
+        s1 = cross2(vector[:, None], start[None] - start[:, None])
+        s2 = cross2(vector[:, None], end[None] - start[:, None])
+        s3 = cross2(vector[None], start[:, None] - start[None])
+        s4 = cross2(vector[None], end[:, None] - start[None])
+        self_cross = int(((s1 * s2 < -1e-8) & (s3 * s4 < -1e-8) & bond_pairs).sum())
+        distance = np.linalg.norm(xy[:, None] - xy[None], axis=2)
+        # Overlaps in bond lengths: an atom on an atom or on a bond is worse
+        # than the line crossing a flip would clear.
+        atom_clash = 0.5 * float(np.square(
+            np.maximum(0.0, 0.62 - distance[~bonded] / unit)).sum())
+        # An atom (and its label) lying on a foreign bond reads as a clash too.
+        rel = xy[:, None] - start[None]                                      # n,b,2
+        t = np.clip((rel * vector[None]).sum(axis=2)
+                    / np.maximum((vector * vector).sum(axis=1), 1e-9), 0.0, 1.0)
+        gap = np.linalg.norm(rel - t[..., None] * vector[None], axis=2)
+        gap[incident] = np.inf
+        atom_clash += 2.5 * float(np.square(np.maximum(0.0, 0.5 - gap / unit)).sum())
+
+        route_cross, route_near = 0, 0.0
+        center = xy.mean(axis=0)
+        for anchors, own_bonds, own_atoms in prepared:
+            points = np.array([xy[list(a)].mean(axis=0) for a in anchors])
+            mid = points.mean(axis=0)
+            base = math.atan2(*(mid - center)[::-1])
+            # Is there *some* nearby partner position that clears every line?
+            angles = base + fan_offset
+            partner = mid + 2.8 * unit * np.stack([np.cos(angles), np.sin(angles)], axis=1)
+            rays = partner[:, None] - points[None]                             # f,a,2
+            c = start[None, None] - points[None, :, None]
+            d = end[None, None] - points[None, :, None]
+            t1 = cross2(rays[:, :, None], c)
+            t2 = cross2(rays[:, :, None], d)
+            t3 = cross2(vector[None, None], points[None, :, None] - start[None, None])
+            t4 = cross2(vector[None, None], partner[:, None, None] - start[None, None])
+            hit = (t1 * t2 < -1e-8) & (t3 * t4 < -1e-8) & ~own_bonds[None]
+            crossings = hit.sum(axis=(1, 2))
+            # Near misses against foreign atoms are secondary to real crossings.
+            delta = xy[None, None] - points[None, :, None]
+            length2 = np.maximum((rays * rays).sum(axis=2), 1e-9)
+            along = np.clip((delta * rays[:, :, None]).sum(axis=3) / length2[:, :, None], 0.18, 0.92)
+            gap = np.linalg.norm(delta - along[..., None] * rays[:, :, None], axis=3)
+            gap[:, own_atoms] = np.inf
+            near = np.square(np.maximum(0.0, 0.25 * unit - gap)).sum(axis=(1, 2))
+            least = int(crossings.min())
+            route_cross += least
+            route_near += float(near[crossings == least].min())
+        return (1_000_000.0 * self_cross + 100_000.0 * route_cross
+                + 400_000.0 * atom_clash + 500.0 * route_near)
+
+    def reflect(xy: np.ndarray, axis) -> np.ndarray:
         i, j, moving = axis
-        origin = xy[i]
-        direction = xy[j] - origin
+        direction = xy[j] - xy[i]
         norm = float(np.linalg.norm(direction))
         if norm < 1e-9:
             return xy
         unit = direction / norm
         out = xy.copy()
-        ids = np.asarray(moving, dtype=int)
-        delta = xy[ids] - origin
-        projection = (delta @ unit)[:, None] * unit
-        out[ids] = origin + 2.0 * projection - delta
+        delta = xy[moving] - xy[i]
+        out[moving] = xy[i] + 2.0 * (delta @ unit)[:, None] * unit - delta
         return out
 
-    def side(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> float:
-        return float((b[0] - a[0]) * (c[1] - a[1])
-                     - (b[1] - a[1]) * (c[0] - a[0]))
-
-    def intersects(a, b, c, d) -> bool:
-        return side(a, b, c) * side(a, b, d) < -1e-8 \
-            and side(c, d, a) * side(c, d, b) < -1e-8
-
-    def score(xy: np.ndarray, flips: int) -> tuple[float, int]:
-        lengths = [float(np.linalg.norm(xy[i] - xy[j])) for i, j in bonds]
-        unit = float(np.median(lengths)) if lengths else 1.5
-
-        # Reject a torsional view that folds the ligand onto itself before its
-        # interaction lines are even considered.
-        self_cross = 0
-        for n, (i, j) in enumerate(bonds):
-            for k, l in bonds[n + 1:]:
-                if {i, j} & {k, l}:
-                    continue
-                self_cross += int(intersects(xy[i], xy[j], xy[k], xy[l]))
-        distance = np.linalg.norm(xy[:, None, :] - xy[None, :, :], axis=2)
-        np.fill_diagonal(distance, np.inf)
-        for i, j in bonds:
-            distance[i, j] = distance[j, i] = np.inf
-        atom_clash = float(np.square(np.maximum(0.0, 0.62 * unit - distance)).sum())
-
-        route_cross = 0
-        route_near = 0.0
-        center = xy.mean(axis=0)
-        bond_start = xy[[i for i, _ in bonds]]
-        bond_end = xy[[j for _, j in bonds]]
-        bond_vector = bond_end - bond_start
-        fan_offset = np.linspace(-0.65, 0.65, 27)
-        for group in metal_groups:
-            anchors = [int(i) for i in dict.fromkeys(group) if 0 <= int(i) < len(xy)]
-            if not anchors:
-                continue
-            anchor_center = xy[anchors].mean(axis=0)
-            base = math.atan2(*(anchor_center - center)[::-1])
-            # Try the same small local fan used by the fast layout.  The score
-            # asks whether *some* close metal position makes every leg readable.
-            angles = base + fan_offset
-            metals = anchor_center + 2.8 * unit * np.stack(
-                [np.cos(angles), np.sin(angles)], axis=1
-            )
-            anchor_xy = xy[anchors]
-            rays = metals[:, None, :] - anchor_xy[None, :, :]       # f,a,2
-
-            def cross2(left, right):
-                return left[..., 0] * right[..., 1] - left[..., 1] * right[..., 0]
-
-            # Proper ray/bond intersections, all fan angles and all anchors in
-            # one small NumPy operation instead of thousands of Python calls.
-            c = bond_start[None, None, :, :] - anchor_xy[None, :, None, :]
-            d = bond_end[None, None, :, :] - anchor_xy[None, :, None, :]
-            s1 = cross2(rays[:, :, None, :], c)
-            s2 = cross2(rays[:, :, None, :], d)
-            a_from_bond = anchor_xy[None, :, None, :] - bond_start[None, None, :, :]
-            m_from_bond = metals[:, None, None, :] - bond_start[None, None, :, :]
-            s3 = cross2(bond_vector[None, None, :, :], a_from_bond)
-            s4 = cross2(bond_vector[None, None, :, :], m_from_bond)
-            hit = (s1 * s2 < -1e-8) & (s3 * s4 < -1e-8)
-            incident = np.array([
-                [atom in bond for bond in bonds] for atom in anchors
-            ], dtype=bool)
-            hit &= ~incident[None, :, :]
-            crossing_count = hit.sum(axis=(1, 2))
-
-            # Near misses against ligand atoms are secondary to real crossings.
-            atom_delta = xy[None, None, :, :] - anchor_xy[None, :, None, :]
-            denominator = np.maximum(np.sum(rays * rays, axis=2), 1e-9)
-            along = np.sum(atom_delta * rays[:, :, None, :], axis=3) \
-                / denominator[:, :, None]
-            along = np.clip(along, 0.18, 0.92)
-            closest = anchor_xy[None, :, None, :] \
-                + along[:, :, :, None] * rays[:, :, None, :]
-            gap = np.linalg.norm(xy[None, None, :, :] - closest, axis=3)
-            for a_i, atom in enumerate(anchors):
-                gap[:, a_i, atom] = np.inf
-            near = np.square(np.maximum(0.0, 0.25 * unit - gap)).sum(axis=(1, 2))
-            minimum_crossings = int(crossing_count.min())
-            eligible = np.flatnonzero(crossing_count == minimum_crossings)
-            best_i = int(eligible[np.argmin(near[eligible])])
-            route_cross += minimum_crossings
-            route_near += float(near[best_i])
-        return (
-            1_000_000.0 * self_cross
-            + 100_000.0 * route_cross
-            + 5_000.0 * atom_clash
-            + 500.0 * route_near
-            + 0.01 * flips,
-            route_cross,
-        )
-
-    finished: list[list[tuple[float, float]]] = []
+    finished = []
     for view in views:
-        base = np.asarray(view, dtype=float)
-        candidates = []
-        # Four bridge axes in ANP mean only sixteen combinations.  Bound the
-        # general case so a polymeric ligand cannot turn this into an unbounded
-        # depiction search.
-        usable = axes[:6]
-        for mask in range(1 << len(usable)):
-            xy = base.copy()
-            flips = 0
-            for bit, axis in enumerate(usable):
-                if mask & (1 << bit):
-                    xy = reflect(xy, axis)
-                    flips += 1
-            candidates.append((score(xy, flips), xy))
-        candidates.sort(key=lambda row: row[0])
-        xy = candidates[0][1]
+        xy = np.asarray(view, dtype=float)
+        best = score(xy)
+        # ponytail: greedy single flips, at most one pass per axis; a pair of
+        # flips that only helps together is missed.  Exhaustive search over
+        # the axes near a crossed line if that ever matters.
+        for _ in range(len(axes)):
+            trials = [reflect(xy, axis) for axis in axes]
+            scores = [score(t) for t in trials]
+            k = int(np.argmin(scores))
+            if scores[k] > best - FLIP_GAIN:
+                break
+            xy, best = trials[k], scores[k]
         finished.append([(float(x), float(y)) for x, y in xy])
     return finished
 

@@ -11,42 +11,21 @@ the ligand scaled so that a bond is :attr:`Weights.bond_px` long.  The y axis
 is whatever RDKit handed us (maths-up); flipping it for Qt is the renderer's
 job.
 
-The public solver uses the bounded discrete/position-based implementation in
-:mod:`ms_contactmap.fast_layout`.  The smooth energy model remains here as a
-diagnostic, a source of vectorized geometry primitives and an explicitly named
-legacy solver for comparisons; importing the normal path does not import its
-SciPy minimizer.
+The solver is the bounded discrete/position-based implementation in
+:mod:`ms_contactmap.fast_layout`.  The smooth energy model remains here to rank
+candidate layouts, as a diagnostic and as a source of vectorized geometry
+primitives.
 """
 from __future__ import annotations
 
 import math
-import sys
-from dataclasses import astuple, dataclass, field
+from dataclasses import dataclass, field
 
 import numpy as np
 
 from .model import Diagram
 
 _EPS = 1e-9
-
-#: Orientations from the scan that get a full solve, best energy first, and
-#: how far apart they have to be so the restarts are actually different layouts.
-_RESTARTS = 4
-_RESTART_SPACING = math.radians(45.0)
-
-#: The orientation scan runs in two passes: everything gets ``_SCAN_COARSE``
-#: iterations, and only the cheapest ``_SCAN_FINALISTS`` are relaxed properly.
-#: A rotation that is going to lose declares itself within a dozen iterations,
-#: and the scan is the largest single cost of a full solve.
-#: 30 is a threshold, not a taste: below ~25 the coarse ranking misorders 6wak
-#: badly enough that the finalists no longer contain the basin the full scan
-#: found, and its energy comes out 2.6x worse.
-_SCAN_COARSE = 30
-_SCAN_FINALISTS = 24
-
-#: Orientations tried per candidate ligand depiction while choosing between
-#: them.  Only enough to tell a projection with room from one without.
-_PROJECTION_ROTATIONS = 8
 
 #: Where along a line E_span checks that it has cleared the ligand.  An
 #: interaction route *starts* on a ligand atom, so its first half is inside the
@@ -1198,354 +1177,11 @@ def _static(diagram: Diagram, glyph_radius: float, w: Weights, coords_2d=None) -
 # Solve
 # ---------------------------------------------------------------------------
 
-def _pick_projection(
-    diagram: Diagram, glyph_radius: float, weights: Weights
-) -> tuple[int, dict]:
-    """Choose which of the ligand's candidate depictions to lay out around.
-
-    A folded depiction does not look wrong on its own -- it looks wrong once
-    the residues have to fit around it, which is a question only the layout
-    energy can answer.  ``chem._depictions`` prunes the illegible ones and
-    hands over the rest; each gets a coarse scan here and the cheapest wins.
-
-    # The scan is deliberately short, but it includes both mirrors: the angular
-    # seed and the frame make mirrored depictions land in different basins.
-    """
-    # The scan is deterministic and costs ~0.6 s of the ~4 s solve, so the
-    # widget's "Recalculate" would spend a seventh of its time re-deriving an
-    # answer it already has.  Memoised on the diagram, keyed on the two inputs
-    # that can change it, so it dies with the diagram and never goes stale.
-    memo_key = (glyph_radius, astuple(weights))
-    memo = getattr(diagram, "_projection_memo", None)
-    if memo is not None and memo[0] == memo_key:
-        return memo[1]
-
-    caches = [_static(diagram, glyph_radius, weights, view)
-              for view in [diagram.coords_2d, *diagram.coords_alt]]
-    if len(caches) == 1:
-        diagram._projection_memo = (memo_key, (0, caches[0]))
-        return 0, caches[0]
-
-    scores = []
-    for cache in caches:
-        best = math.inf
-        for flip in (False, True):
-            for step in range(_PROJECTION_ROTATIONS):
-                trial = build_problem(
-                    diagram, glyph_radius=glyph_radius, weights=weights,
-                    rotation=2.0 * math.pi * step / _PROJECTION_ROTATIONS,
-                    mirror=flip, _cache=cache,
-                )
-                energy = _relax(trial, trial.seed(), 30)[1]
-                best = min(best, _candidate_score(trial, energy))
-        scores.append(best)
-    pick = int(np.argmin(scores))
-    print("[ms_contactmap.layout] projection " + " ".join(
-        f"{'*' if i == pick else ' '}{s:.0f}" for i, s in enumerate(scores)),
-        file=sys.stderr)
-    diagram._projection_memo = (memo_key, (pick, caches[pick]))
-    return pick, caches[pick]
-
-
-def _relax(problem: Problem, x0: np.ndarray, maxiter: int, bounds=None) -> tuple[np.ndarray, float]:
-    from scipy.optimize import minimize
-
-    if problem.n == 0:
-        return x0, 0.0
-    res = minimize(
-        problem.objective, x0, jac=True, method="L-BFGS-B", bounds=bounds,
-        # Ten correction vectors are ample for the 20-60 variables in these
-        # diagrams.  Twenty doubled the expensive L-BFGS matrix work without a
-        # measurable improvement in final energy or crossing repair.
-        options={"maxiter": maxiter, "maxcor": 10, "ftol": 1e-9, "gtol": 1e-6},
-    )
-    return res.x, float(res.fun)
-
-
-def _candidate_score(problem: Problem, energy: float) -> float:
-    """Rank a solved basin while keeping the reported physical layout energy pure."""
-    coords = problem.ligand
-    if len(coords) < 2:
-        return energy
-    covariance = np.cov(coords.T, bias=True)
-    values, vectors = np.linalg.eigh(covariance)
-    total = max(float(values.sum()), _EPS)
-    anisotropy = max(0.0, float(values[-1] - values[0]) / total)
-    major = vectors[:, -1]
-    vertical = float(major[1] * major[1])
-    return energy + problem.w.horizontal_preference * anisotropy * vertical
-
-
-def solve_layout_legacy(
-    diagram: Diagram,
-    *,
-    glyph_radius: float = 26.0,
-    weights: Weights = WEIGHTS,
-    rotations: int = 36,
-    seed_positions: dict[str, tuple[float, float]] | None = None,
-    pinned: set[str] | None = None,
-    max_swaps: int = 30,
-    orientation: tuple[float, bool] | None = None,
-    projection: int | None = None,
-) -> LayoutResult:
-    """Place every residue glyph and pick the ligand orientation.
-
-    ``seed_positions`` starts the optimiser from the given scene coordinates
-    instead of the angular seed -- used by the tests and by the widget when the
-    user has dragged a glyph and wants the rest re-settled around it.  It is a
-    hint, not a constraint: if it leads somewhere tangled the orientation scan
-    still gets its turn.
-
-    ``orientation`` pins the ligand to one ``(rotation, mirror)`` and skips the
-    scan, so the residues re-solve around a rotation the caller chose -- what
-    the widget's "rotate ligand" and "reshuffle" actions do.
-
-    ``pinned`` names residues whose ``seed_positions`` are a constraint rather
-    than a hint: the solver settles everything else around them and leaves them
-    exactly where the caller put them.  That is what the widget's "rotate this
-    metal, re-accommodate the neighbours" action needs, because nothing in the
-    energy model cares which way a coordination polygon faces, so an ordinary
-    re-solve would simply undo the rotation.
-
-    ``projection`` picks one of the ligand's candidate depictions by index
-    instead of letting the coarse scan choose -- pass ``result.projection``
-    back in so a re-solve keeps drawing the same ligand.
-    """
-    if projection is not None:
-        views = [diagram.coords_2d, *diagram.coords_alt]
-        cache = _static(diagram, glyph_radius, weights, views[projection])
-    else:
-        projection, cache = _pick_projection(diagram, glyph_radius, weights)
-    keys = cache["keys"]
-
-    if not keys:
-        return LayoutResult(
-            {}, [tuple(p) for p in cache["coords"]], 0.0, False, 0.0, {}, 0, projection
-        )
-
-    attempts: list[tuple[float, bool, Problem, np.ndarray]] = []
-
-    # ``orientation`` and ``pinned`` both fix things the scan would undo, so
-    # they short-circuit it.  Given together the caller's coordinates are the
-    # start and the caller's rotation is the ligand.
-    theta, flip = orientation if orientation is not None else (0.0, False)
-    if orientation is not None or pinned:
-        fixed = build_problem(
-            diagram, glyph_radius=glyph_radius, weights=weights,
-            rotation=theta, mirror=flip, _cache=cache,
-        )
-        seed = fixed.seed().reshape(-1, 2)
-        for i, key in enumerate(keys):
-            if seed_positions and key in seed_positions:
-                seed[i] = seed_positions[key]
-        # L-BFGS-B already takes box bounds, so a pin is just a degenerate box.
-        bounds = None if not pinned else [
-            (v, v) if key in pinned else (None, None)
-            for i, key in enumerate(keys)
-            for v in seed[i]
-        ]
-        return _finish(
-            [(theta, flip, fixed, seed.ravel())], keys, glyph_radius, max_swaps,
-            projection, bounds,
-        )
-
-    if seed_positions is not None:
-        upright = build_problem(diagram, glyph_radius=glyph_radius, weights=weights, _cache=cache)
-        seed = upright.seed().reshape(-1, 2)
-        for i, key in enumerate(keys):
-            if key in seed_positions:
-                seed[i] = seed_positions[key]
-        attempts.append((0.0, False, upright, seed.ravel()))
-
-    # Score every orientation with a short relaxation, then relax the finalists
-    # properly from where the coarse pass left them.  The reflected half of the
-    # scan is not redundant: the seed orders the glyphs by bearing, so a mirror
-    # reverses that order and the relaxation lands in a different basin --
-    # measured at up to 3x the energy of the same angle unmirrored.
-    coarse: list[tuple[float, float, bool, Problem, np.ndarray]] = []
-    for flip in (False, True):
-        for step in range(rotations):
-            theta = 2.0 * math.pi * step / rotations
-            trial = build_problem(
-                diagram, glyph_radius=glyph_radius, weights=weights,
-                rotation=theta, mirror=flip, _cache=cache,
-            )
-            xc, energy = _relax(trial, trial.seed(), _SCAN_COARSE)
-            coarse.append((_candidate_score(trial, energy), theta, flip, trial, xc))
-    coarse.sort(key=lambda row: row[0])
-    scan: list[tuple[float, float, bool, Problem, np.ndarray]] = []
-    for _, theta, flip, trial, xc in coarse[:_SCAN_FINALISTS]:
-        xt, energy = _relax(trial, xc, 45)
-        scan.append((_candidate_score(trial, energy), theta, flip, trial, xt))
-    # Take the best orientations, but keep them apart: energy varies smoothly
-    # with the angle, so the top few by score alone are the same layout nudged
-    # a few degrees and all fall into the same tangle.
-    scan.sort(key=lambda row: row[0])
-    chosen: list[tuple[float, bool]] = []
-    for _, theta, flip, trial, xt in scan:
-        if len(chosen) >= _RESTARTS:
-            break
-        gap = min(
-            (abs((theta - t + math.pi) % (2.0 * math.pi) - math.pi) for t, f in chosen if f == flip),
-            default=math.inf,
-        )
-        if gap >= _RESTART_SPACING:
-            chosen.append((theta, flip))
-            attempts.append((theta, flip, trial, xt))
-
-    return _finish(attempts, keys, glyph_radius, max_swaps, projection)
-
-
-def _finish(attempts, keys, glyph_radius, max_swaps, projection, bounds=None) -> LayoutResult:
-    # Take the cheapest orientation first and stop as soon as one comes out
-    # clean; a tangle is usually a property of the starting arrangement, not
-    # of the diagram, so the next orientation down the list often just works.
-    best: tuple[int, float, float, bool, Problem, np.ndarray] | None = None
-    for rotation, mirror, problem, start in attempts:
-        x, _ = _relax(problem, start, 400, bounds)
-        if bounds is not None:
-            # Crossing repair swaps whole glyphs between slots, which would
-            # move the very residues the caller pinned.  Report the crossings
-            # and leave the arrangement alone.
-            crossings = _count_crossings(problem, x.reshape(-1, 2), glyph_radius)
-        else:
-            x, crossings = _repair_crossings(problem, x, glyph_radius, max_swaps)
-        energy = problem.objective(x)[0]
-        if best is None or (crossings, energy) < (best[0], best[1]):
-            best = (crossings, energy, rotation, mirror, problem, x)
-        if crossings == 0:
-            break
-
-    crossings, energy, rotation, mirror, problem, x = best
-    p = x.reshape(-1, 2)
-    return LayoutResult(
-        positions={k: (float(p[i, 0]), float(p[i, 1])) for i, k in enumerate(keys)},
-        ligand_coords=[(float(a), float(b)) for a, b in problem.ligand],
-        rotation=rotation,
-        mirror=mirror,
-        energy=float(energy),
-        energy_terms=problem.terms(x),
-        crossings=crossings,
-        projection=projection,
-    )
-
-
-def _repair_crossings(
-    problem: Problem, x: np.ndarray, radius: float, max_swaps: int
-) -> tuple[np.ndarray, int]:
-    """Greedily reassign glyphs to their own positions until crossings go away.
-
-    The move that helps most is applied, then the continuous phase runs again
-    from there -- a move that looks good on frozen straight lines still has to
-    survive the springs.  When it does not, it goes on a tabu list and the
-    next-best candidate is tried instead of giving up.
-
-    "Helps most" is not the crossing count alone.  Counting only crossings, the
-    pass will pay any price for one: on 4uwh it bought a crossing by sending
-    ILE685 to the far rim, which drew its hydrogen bond straight across the
-    ligand -- a worse drawing by every measure a reader applies.  So a move is
-    scored on crossings *and* on how far it leaves each glyph from its anchor
-    target, converted into the same units by ``Weights.crossing_cost``.
-
-    # ponytail: greedy 2-opt only moves downhill, so a tangle that needs two
-    # simultaneous moves to improve is a local minimum this cannot leave, and
-    # the tabu list only papers over the single-move case.  It starts to bite
-    # above ~25 residues.  The upgrade is simulated annealing over the same
-    # neighbourhood.
-    """
-    def score(q: np.ndarray, n_cross: int) -> float:
-        reach = np.hypot(*(q - problem.target).T)
-        return n_cross * problem.w.crossing_cost + float(problem.stiff @ reach)
-
-    p = x.reshape(-1, 2).copy()
-    crossings, blame = _count_crossings(problem, p, radius, culprits=True)
-    cost = score(p, crossings)
-    best_p, best_crossings, best_cost = p, crossings, cost
-    tabu: set[tuple[int, int, int]] = set()
-    for _ in range(max_swaps):
-        if best_crossings == 0:
-            break
-        pick, pick_q, pick_cost = None, None, cost
-        for move, q in _moves(p, blame, problem):
-            if move in tabu:
-                continue
-            got = score(q, _count_crossings(problem, q, radius))
-            if got < pick_cost:
-                pick, pick_q, pick_cost = move, q, got
-        if pick is None:
-            break
-        q, _ = _relax(problem, pick_q.ravel(), 250)
-        q = q.reshape(-1, 2)
-        got, got_blame = _count_crossings(problem, q, radius, culprits=True)
-        got_cost = score(q, got)
-        if got_cost < cost:
-            p, crossings, blame, cost, tabu = q, got, got_blame, got_cost, set()
-        else:
-            tabu.add(pick)
-        if got_cost < best_cost:
-            best_p, best_crossings, best_cost = q, got, got_cost
-    return best_p.ravel(), best_crossings
-
-
-def _moves(p: np.ndarray, blame: set[int], problem: Problem):
-    """Candidate reassignments of the glyphs to the slots they already occupy.
-
-    Two neighbourhoods: transpositions of any pair, and 2-opt reversals of a
-    contiguous run of the bearing-sorted order.  The reversals are what makes
-    this work -- undoing a tangle by transpositions alone needs a long run of
-    individually useless moves, whereas one reversal uncrosses a whole arc, in
-    the same way 2-opt uncrosses a travelling-salesman tour.
-
-    ``blame`` holds the glyphs currently involved in a crossing.  A move that
-    leaves all of them where they are cannot lower the count, so it is not
-    offered: on 24 residues that is ~530 candidates down to a few dozen, and
-    each one costs a full crossing count.
-
-    Ordinary residues are free to be shuffled -- :func:`_repair_crossings`
-    prices what that costs them.  Conductors (``problem.pinned`` -- metals,
-    their sphere, structural waters and the residues they bridge) are not up
-    for negotiation at all: a move that leaves one further from its anchor
-    target than it already is is never offered.  They lead, everyone else
-    accommodates.
-    """
-    n = len(p)
-    pinned, target = problem.pinned, problem.target
-    home = np.hypot(*(p[pinned] - target[pinned]).T)
-
-    def keeps(q: np.ndarray) -> bool:
-        return bool(np.all(np.hypot(*(q[pinned] - target[pinned]).T) <= home + _EPS))
-
-    for i in range(n):
-        for j in range(i + 1, n):
-            if i not in blame and j not in blame:
-                continue
-            q = p.copy()
-            q[[i, j]] = q[[j, i]]
-            if not keeps(q):
-                continue
-            yield (0, i, j), q
-    order = np.argsort(np.arctan2(p[:, 1], p[:, 0]))
-    # Prefix count of blamed glyphs along the sorted order, so testing whether a
-    # run contains one is a subtraction rather than a scan.
-    seen = np.cumsum([0] + [int(i in blame) for i in order])
-    for a in range(n - 1):
-        for b in range(a + 2, n):
-            if seen[b + 1] == seen[a]:
-                continue
-            block = order[a:b + 1]
-            q = p.copy()
-            q[block] = p[block[::-1]]
-            if not keeps(q):
-                continue
-            yield (1, a, b), q
-
-
 def solve_layout(
     diagram: Diagram,
     *,
     glyph_radius: float = 26.0,
     weights: Weights = WEIGHTS,
-    rotations: int = 16,
     seed_positions: dict[str, tuple[float, float]] | None = None,
     pinned: set[str] | None = None,
     max_swaps: int = 12,
@@ -1555,10 +1191,8 @@ def solve_layout(
 ) -> LayoutResult:
     """Fast deterministic layout used by the application.
 
-    The former L-BFGS implementation remains available as
-    :func:`solve_layout_legacy` for numerical comparisons.  The interactive
-    path now evaluates discrete ligand views and settles local constraints in
-    bounded vector operations; it does not need a worker process.
+    Evaluates discrete ligand views and settles local constraints in bounded
+    vector operations; it does not need a worker process.
     """
     from .fast_layout import solve_layout_fast
 
@@ -1566,7 +1200,6 @@ def solve_layout(
         diagram,
         glyph_radius=glyph_radius,
         weights=weights,
-        rotations=rotations,
         seed_positions=seed_positions,
         pinned=pinned,
         max_swaps=max_swaps,

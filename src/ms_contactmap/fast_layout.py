@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .model import Diagram
+from .model import RING_ANCHORED, Diagram
 
 
 @dataclass
@@ -61,9 +61,17 @@ def _angle_delta(a: np.ndarray | float, b: float) -> np.ndarray:
     return (np.asarray(a) - b + math.pi) % (2.0 * math.pi) - math.pi
 
 
+#: Slot-score price of one strong line drawn across one ligand bond, in the
+#: pixels of glyph-to-anchor distance it trades against.  Several glyph
+#: pitches: a residue may move round the ligand to keep its line clear, but
+#: not to the far side of the canvas.
+BOND_CROSS_COST = 700.0
+
+
 def _place_discrete(problem, cache: dict, diagram: Diagram, glyph_radius: float,
                     variant: int, fixed: dict[str, tuple[float, float]] | None,
-                    pinned: set[str]) -> tuple[np.ndarray, np.ndarray]:
+                    pinned: set[str], lines: _Lines
+                    ) -> tuple[np.ndarray, np.ndarray]:
     """Place residues on sampled contour slots, important interactions first."""
     n = len(problem.keys)
     if n == 0:
@@ -89,6 +97,10 @@ def _place_discrete(problem, cache: dict, diagram: Diagram, glyph_radius: float,
     p = np.zeros((n, 2), dtype=float)
     target = np.zeros((n, 2), dtype=float)
     placed: list[_Placed] = []
+    placed_mask = np.zeros(n, dtype=bool)
+    ligand_gap = _Clearance(problem)
+    room_limit = float(np.max(problem.ligand_clearance, initial=0.0))
+    concave_clearance = _concave_clearance(problem)
     key_index = {key: i for i, key in enumerate(problem.keys)}
     backbone_neighbours: dict[int, list[tuple[int, float]]] = {
         i: [] for i in range(n)
@@ -106,6 +118,7 @@ def _place_discrete(problem, cache: dict, diagram: Diagram, glyph_radius: float,
         i = key_index[key]
         p[i] = target[i] = fixed[key]
         placed.append(_Placed(i, p[i].copy()))
+        placed_mask[i] = True
 
     order = sorted(
         (i for i, key in enumerate(problem.keys) if key not in pinned),
@@ -160,7 +173,15 @@ def _place_discrete(problem, cache: dict, diagram: Diagram, glyph_radius: float,
                 for layer_i in range(layers)
             ])
             layer = np.repeat(np.arange(layers), count)
-            candidate_angles = np.tile(angles, layers)
+            if atom_ids and not is_context:
+                # Right beside the anchors, a concavity of the drawing included:
+                # the global contour alone keeps a residue off a bay its atom
+                # faces into.
+                reach = concave_clearance[i] * np.array([1.05, 1.35])
+                local = (anchors.mean(axis=0) + unit[:, None, :] * reach[None, :, None]).reshape(-1, 2)
+                candidates = np.concatenate([candidates, local])
+                layer = np.concatenate([layer, np.zeros(len(local), dtype=int)])
+            candidate_angles = np.arctan2(candidates[:, 1], candidates[:, 0])
 
         # Minimax anchor distance is the decisive term for a residue connected
         # to atoms on different parts of the ligand.  It avoids the misleading
@@ -170,15 +191,9 @@ def _place_discrete(problem, cache: dict, diagram: Diagram, glyph_radius: float,
         score = distances.max(axis=1) + 0.18 * distances.mean(axis=1)
         score += 18.0 * np.abs(_angle_delta(candidate_angles, ideal))
         score += layer * (30.0 if is_context else 240.0)
-
-        # A route has to leave the convex ligand promptly.  Test the useful
-        # outer half of every line; this sees an arrow laid across a ring even
-        # when it happens not to intersect an individual bond segment.
-        for anchor in anchors:
-            for t in (0.50, 0.68, 0.84):
-                samples = (1.0 - t) * anchor + t * candidates
-                clearance = problem._hull_distance(samples)[0]
-                score += 40.0 * np.maximum(0.0, 7.0 - clearance) ** 2
+        # A glyph may enter a bay of the drawing but never sit on it.
+        room = ligand_gap(candidates, room_limit)
+        score += 600.0 * np.maximum(0.0, np.minimum(concave_clearance[i], problem.ligand_clearance[i]) - room) ** 2
 
         for other in placed:
             sep = np.linalg.norm(candidates - other.position[None, :], axis=1)
@@ -201,19 +216,82 @@ def _place_discrete(problem, cache: dict, diagram: Diagram, glyph_radius: float,
                 clearance = problem._hull_distance(samples)[0]
                 score += 120.0 * np.maximum(0.0, 8.0 - clearance) ** 2
 
+        # The line terms below cost far more per candidate than the ones above
+        # and only reorder near-equal slots: score the best few only.
+        keep = np.argsort(score)[:SHORTLIST]
+        candidates, score = candidates[keep], score[keep]
+
+        # Inside a bay the nearby atoms must leave an open side, so the glyph
+        # reads as beside the ligand, not enclosed by it.
+        inside = problem._hull_distance(candidates)[0] < problem.ligand_clearance[i]
+        if np.any(inside):
+            score[inside] += 4000.0 * np.maximum(0.0, OPEN_SIDE - _open_side(problem, candidates[inside]))
+
+        # The outer part of each line keeps a margin from the drawing itself
+        # -- atoms and bonds, not the convex hull, so a line may leave through
+        # a concavity when that is where its anchor faces.
+        steps = np.array([0.50, 0.68, 0.84])[None, :, None, None]
+        samples = (1.0 - steps) * anchors[:, None, None, :] + steps * candidates[None, None]
+        clearance = ligand_gap(samples.reshape(-1, 2), LINE_CLEARANCE).reshape(samples.shape[:-1])
+        score += 40.0 * np.sum(np.maximum(0.0, LINE_CLEARANCE - clearance) ** 2, axis=(0, 1))
+
+        # The whole drawn line, not only its outer half, has to stay off the
+        # ligand: an anchor atom inside the drawing needs a slot it can see.
+        score += BOND_CROSS_COST * _glyph_bond_hits(
+            problem, lines, i, candidates, p, placed_mask)
+
         choice = int(np.argmin(score))
         p[i] = target[i] = candidates[choice]
         placed.append(_Placed(i, p[i].copy()))
+        placed_mask[i] = True
 
     return p, target
 
 
+#: Slots per residue that get the line terms, after the cheap ranking.
+SHORTLIST = 48
+
+#: Widest empty bearing, seen from a glyph, that the nearby atoms must leave:
+#: below it the glyph reads as enclosed by the ligand rather than beside it.
+OPEN_SIDE = math.radians(160.0)
+
+
+def _open_side(problem, pts: np.ndarray) -> np.ndarray:
+    """Largest angular gap between the ligand atoms as seen from each point.
+
+    Every atom counts, not only near ones: the hollow of a macrocycle is
+    enclosed however far its far side is.
+    """
+    if len(problem.ligand) < 2:
+        return np.full(len(pts), 2.0 * math.pi)
+    rel = problem.ligand[None, :, :] - pts[:, None, :]
+    bearing = np.sort(np.arctan2(rel[..., 1], rel[..., 0]), axis=1)
+    wrap = bearing[:, :1] + 2.0 * math.pi
+    return np.diff(np.concatenate([bearing, wrap], axis=1), axis=1).max(axis=1)
+
+
+def _concave_clearance(problem) -> np.ndarray:
+    """Centre clearance from the drawn atoms/bonds for a glyph in a concavity."""
+    return problem.radii + CONCAVE_MARGIN
+
+
 def _settle_local(problem, p: np.ndarray, target: np.ndarray,
                   pinned: set[str], fixed: dict[str, tuple[float, float]] | None,
-                  iterations: int = 24) -> np.ndarray:
-    """Resolve local clearances with bounded position-based constraints."""
+                  iterations: int = 24, concave: np.ndarray | None = None) -> np.ndarray:
+    """Resolve local clearances with bounded position-based constraints.
+
+    ``concave`` marks glyphs measured against the drawn atoms and bonds rather
+    than the convex hull, so they may sit in a bay of the ligand like a water.
+    """
     if len(p) == 0:
         return p
+    if concave is None:
+        concave = np.zeros(len(p), dtype=bool)
+    drawing = _Clearance(problem)
+    local_nodes = problem.water_mask | problem.metal_mask | concave
+    clearance = problem.ligand_clearance.copy()
+    soft = concave & ~problem.water_mask & ~problem.metal_mask
+    clearance[soft] = _concave_clearance(problem)[soft]
     fixed_mask = np.array([key in pinned for key in problem.keys], dtype=bool)
     fixed_values = p.copy()
 
@@ -251,7 +329,7 @@ def _settle_local(problem, p: np.ndarray, target: np.ndarray,
             # radially inside the residue ribbon, not behind the residues.
             # Respect ligand clearance even when a very tight surface leaves
             # less room than one complete coordination glyph.
-            hull_distance, _ = problem._molecule_distance(p[i:i + 1])
+            hull_distance, _ = drawing.away(p[i:i + 1])
             ligand_floor = radius - max(
                 0.0, float(hull_distance[0] - problem.ligand_clearance[i])
             )
@@ -320,63 +398,65 @@ def _settle_local(problem, p: np.ndarray, target: np.ndarray,
 
         # Exact ligand minimum.  Waters use the true atom/bond geometry so a
         # concavity remains available; all other glyphs clear the global hull.
-        local_nodes = problem.water_mask | problem.metal_mask
         normal = ~local_nodes
         if np.any(normal):
             d, direction = problem._hull_distance(p[normal])
-            need = np.maximum(0.0, problem.ligand_clearance[normal] - d)
+            need = np.maximum(0.0, clearance[normal] - d)
             p[normal] += need[:, None] * direction
         if np.any(local_nodes):
-            d, direction = problem._molecule_distance(p[local_nodes])
-            need = np.maximum(
-                0.0, problem.ligand_clearance[local_nodes] - d
-            )
+            d, direction = drawing.away(p[local_nodes])
+            need = np.maximum(0.0, clearance[local_nodes] - d)
             p[local_nodes] += need[:, None] * direction
 
         # Pair constraints.  Resolve every overlap symmetrically unless one
-        # endpoint was manually pinned.
-        for i in range(len(p)):
-            for j in range(i + 1, len(p)):
-                delta = p[j] - p[i]
-                distance = float(np.hypot(delta[0], delta[1]))
-                floor = float(problem.pair_floor[i, j])
-                if distance >= floor:
-                    continue
-                if distance < 1e-8:
-                    angle = (i * 2.399963229728653) % (2.0 * math.pi)
-                    direction = np.array([math.cos(angle), math.sin(angle)])
-                else:
-                    direction = delta / distance
-                correction = direction * (floor - distance + 0.05)
-                if fixed_mask[i] and fixed_mask[j]:
-                    continue
-                if fixed_mask[i]:
-                    p[j] += correction
-                elif fixed_mask[j]:
-                    p[i] -= correction
-                else:
-                    p[i] -= 0.5 * correction
-                    p[j] += 0.5 * correction
+        # endpoint was manually pinned.  Only pairs overlapping at the start of
+        # the sweep enter it; one pushed into overlap is caught next iteration.
+        gap = np.linalg.norm(p[None, :] - p[:, None], axis=-1) - problem.pair_floor
+        for i, j in zip(*np.nonzero(np.triu(gap < 0.0, 1))):
+            if fixed_mask[i] and fixed_mask[j]:
+                continue
+            delta = p[j] - p[i]
+            distance = float(np.hypot(delta[0], delta[1]))
+            floor = float(problem.pair_floor[i, j])
+            if distance >= floor:
+                continue
+            if distance < 1e-8:
+                angle = (i * 2.399963229728653) % (2.0 * math.pi)
+                direction = np.array([math.cos(angle), math.sin(angle)])
+            else:
+                direction = delta / distance
+            correction = direction * (floor - distance + 0.05)
+            if fixed_mask[i]:
+                p[j] += correction
+            elif fixed_mask[j]:
+                p[i] -= correction
+            else:
+                p[i] -= 0.5 * correction
+                p[j] += 0.5 * correction
 
         # Backbone and bridge relations are local springs.  Their strengths are
         # capped so they can never violate ligand/glyph clearance in one step.
-        for edge, k, rest in zip(problem.backbone, problem.edge_k, problem.edge_rest):
-            i, j = map(int, edge)
-            delta = p[j] - p[i]
-            distance = max(float(np.hypot(delta[0], delta[1])), 1e-8)
-            error = np.clip(distance - rest, -8.0, 8.0)
-            correction = delta / distance * error * min(0.18, 0.025 * float(k))
-            if not fixed_mask[i]:
-                p[i] += correction
-            if not fixed_mask[j]:
-                p[j] -= correction
+        # Applied all at once (Jacobi); the per-edge step is small enough.
+        if len(problem.backbone):
+            ei, ej = np.asarray(problem.backbone, dtype=int).reshape(-1, 2).T
+            delta = p[ej] - p[ei]
+            distance = np.maximum(np.hypot(delta[:, 0], delta[:, 1]), 1e-8)
+            error = np.clip(distance - problem.edge_rest, -8.0, 8.0)
+            step = np.minimum(0.18, 0.025 * np.asarray(problem.edge_k, dtype=float))
+            correction = delta / distance[:, None] * (error * step)[:, None]
+            move = np.zeros_like(p)
+            np.add.at(move, ei, correction)
+            np.add.at(move, ej, -correction)
+            move[fixed_mask] = 0.0
+            p += move
 
         # Keep the sampled outer part of interaction/backbone routes outside
         # the ligand.  Move only their free endpoints; anchors are molecular
         # atoms and intentionally fixed.
         if len(problem.span_map):
             samples = problem.span_base + problem.span_map @ p
-            d, direction = problem._hull_distance(samples)
+            # The drawing itself, not the hull: a line may leave via a bay.
+            d, direction = drawing.away(samples)
             need = np.maximum(0.0, 12.0 - d)
             for row in np.flatnonzero(need > 0.0):
                 owners = np.flatnonzero(problem.span_map[row] > 0.0)
@@ -395,32 +475,28 @@ def _settle_local(problem, p: np.ndarray, target: np.ndarray,
     # context residue (MET682 was the visible example) touching the ligand.
     for _ in range(4):
         enforce_water_bridges()
-        local_nodes = problem.water_mask | problem.metal_mask
         d, direction = problem._hull_distance(p[~local_nodes])
-        need = np.maximum(0.0, problem.ligand_clearance[~local_nodes] - d)
+        need = np.maximum(0.0, clearance[~local_nodes] - d)
         p[~local_nodes] += need[:, None] * direction
         if np.any(local_nodes):
-            d, direction = problem._molecule_distance(p[local_nodes])
-            need = np.maximum(0.0, problem.ligand_clearance[local_nodes] - d)
+            d, direction = drawing.away(p[local_nodes])
+            need = np.maximum(0.0, clearance[local_nodes] - d)
             p[local_nodes] += need[:, None] * direction
-        for i in range(len(p)):
-            for j in range(i + 1, len(p)):
-                delta = p[j] - p[i]
-                distance = max(float(np.hypot(delta[0], delta[1])), 1e-8)
-                floor = float(problem.pair_floor[i, j])
-                if distance + 1e-6 >= floor:
-                    continue
-                direction = delta / distance
-                correction = direction * (floor - distance + 0.1)
-                if fixed_mask[i] and fixed_mask[j]:
-                    continue
-                if fixed_mask[i]:
-                    p[j] += correction
-                elif fixed_mask[j]:
-                    p[i] -= correction
-                else:
-                    p[i] -= correction * 0.5
-                    p[j] += correction * 0.5
+        gap = np.linalg.norm(p[None, :] - p[:, None], axis=-1) - problem.pair_floor
+        for i, j in zip(*np.nonzero(np.triu(gap + 1e-6 < 0.0, 1))):
+            delta = p[j] - p[i]
+            distance = max(float(np.hypot(delta[0], delta[1])), 1e-8)
+            floor = float(problem.pair_floor[i, j])
+            if distance + 1e-6 >= floor or (fixed_mask[i] and fixed_mask[j]):
+                continue
+            correction = delta / distance * (floor - distance + 0.1)
+            if fixed_mask[i]:
+                p[j] += correction
+            elif fixed_mask[j]:
+                p[i] -= correction
+            else:
+                p[i] -= correction * 0.5
+                p[j] += correction * 0.5
         keep_metals_on_pocket_side()
         if np.any(fixed_mask):
             p[fixed_mask] = fixed_values[fixed_mask]
@@ -428,75 +504,253 @@ def _settle_local(problem, p: np.ndarray, target: np.ndarray,
 
 
 def _repair_discrete(problem, p: np.ndarray, target: np.ndarray,
-                     pinned: set[str], rounds: int) -> tuple[np.ndarray, int]:
+                     pinned: set[str], rounds: int,
+                     lines: _Lines) -> tuple[np.ndarray, int]:
     """Swap occupied slots only when that strictly improves line readability."""
     from .layout import _count_crossings
 
     fixed = {i for i, key in enumerate(problem.keys) if key in pinned}
 
-    def score(q: np.ndarray) -> tuple[int, float]:
-        crossings = _count_crossings(problem, q, problem.radius)
-        reach = float(np.sum(problem.stiff * np.linalg.norm(q - target, axis=1)))
-        return crossings, reach
+    def score_all(qs: np.ndarray) -> list[tuple[int, float]]:
+        bonds = _line_bond_crossings(problem, qs, lines)
+        reach = np.sum(problem.stiff * np.linalg.norm(qs - target, axis=-1), axis=-1)
+        return [(_count_crossings(problem, q, problem.radius) + int(b), float(r))
+                for q, b, r in zip(qs, np.atleast_1d(bonds), np.atleast_1d(reach))]
 
-    best = score(p)
+    def culprits(q: np.ndarray) -> set[int]:
+        _, crossed = _count_crossings(problem, q, problem.radius, culprits=True)
+        _, bonds = _line_bond_crossings(problem, q, lines, culprits=True)
+        return crossed | bonds
+
+    best = score_all(p[None])[0]
     if best[0] == 0:
         return p, 0
-    _, blame = _count_crossings(problem, p, problem.radius, culprits=True)
+    blame = culprits(p)
     for _ in range(max(0, min(rounds, 4))):
-        choice = None
-        choice_score = best
         # A swap that leaves every implicated glyph untouched cannot remove a
         # crossing.  Restricting one endpoint to ``blame`` cuts ANP from ~900
         # full crossing counts per round to a few dozen.
-        for i in sorted(blame - fixed):
-            for j in range(len(p)):
-                if j == i or j in fixed:
-                    continue
-                if j < i and j in blame:
-                    continue
-                q = p.copy()
-                q[[i, j]] = q[[j, i]]
-                got = score(q)
-                if got < choice_score:
-                    choice, choice_score = q, got
-        if choice is None:
+        swaps = [(i, j) for i in sorted(blame - fixed) for j in range(len(p))
+                 if j != i and j not in fixed and not (j < i and j in blame)]
+        if not swaps:
             break
-        p, best = choice, choice_score
+        qs = np.repeat(p[None], len(swaps), axis=0)
+        k = np.arange(len(swaps))
+        i, j = np.array(swaps).T
+        qs[k, i], qs[k, j] = p[j], p[i]
+        scores = score_all(qs)
+        pick = min(range(len(swaps)), key=scores.__getitem__)
+        if not scores[pick] < best:
+            break
+        p, best = qs[pick], scores[pick]
         if best[0] == 0:
             break
-        _, blame = _count_crossings(problem, p, problem.radius, culprits=True)
+        blame = culprits(p)
     return p, best[0]
 
 
-def _metal_route_crossings(problem, p: np.ndarray, diagram: Diagram) -> int:
-    """Count every ligand-metal leg separately against the ligand bond graph."""
+@dataclass
+class _Lines:
+    """Every strong line the diagram draws, one row each, as flat arrays.
+
+    ``start`` is the fixed ligand end; rows whose line starts at a water glyph
+    (the water -> residue leg of a bridge) carry NaN there and the water's
+    index in ``water``.  ``own``/``own_atoms`` mark the bonds and atoms a line
+    legitimately touches at its start: its anchor atom's bonds and its own
+    atom group, or its ring.
+    """
+
+    owner: np.ndarray       # (L,) glyph index the line ends at
+    start: np.ndarray       # (L, 2)
+    water: np.ndarray       # (L,) water glyph index, -1 for a ligand start
+    own: np.ndarray         # (L, bonds) bool
+    own_atoms: np.ndarray   # (L, atoms) bool
+
+    def rows_of(self, glyph: int) -> np.ndarray:
+        return np.flatnonzero(self.owner == glyph)
+
+    def starts(self, p: np.ndarray, rows: np.ndarray) -> np.ndarray:
+        """Line starts for ``rows`` with water legs resolved against ``p``."""
+        start = self.start[rows].copy()
+        water = self.water[rows]
+        start[water >= 0] = p[water[water >= 0]]
+        return start
+
+
+def _line_specs(problem, diagram: Diagram) -> _Lines:
+    """Every strong line, with the start rule ``render._ligand_anchor`` draws.
+
+    A ring contact starts at the ring centroid and may cross its own ring; a
+    single-atom contact starts at its anchor atom; each metal leg starts at its
+    own atom.  A water-bridged contact is two lines: ligand -> water belongs to
+    the water, water -> residue to the residue.  Hydrophobic contacts are off
+    by default and only a hint when shown, so they never steer the layout.
+    """
     index = {key: i for i, key in enumerate(problem.keys)}
+    bonds = problem.ligand_bonds.reshape(-1, 2).astype(int)
+    n_atoms = len(problem.ligand)
+    rows: list[tuple] = []
+    seen: set[tuple] = set()
 
-    def side(a, b, c):
-        return (b[0] - a[0]) * (c[1] - a[1]) \
-            - (b[1] - a[1]) * (c[0] - a[0])
+    def add(owner: int, atoms: list[int] | None, ring: bool = False, water: int = -1) -> None:
+        own_atoms = np.zeros(n_atoms, dtype=bool)
+        if atoms is None:
+            mark, start, own = (owner, "water", water), np.full(2, np.nan), \
+                np.zeros(len(bonds), dtype=bool)
+        elif ring:
+            mark, start = (owner, tuple(atoms)), problem.ligand[atoms].mean(axis=0)
+            own = np.isin(bonds, atoms).all(axis=1)
+            own_atoms[atoms] = True
+        else:
+            # The line may run over the rest of its own group (both O of a
+            # carboxylate), not over anything else.
+            mark, start = (owner, atoms[0]), problem.ligand[atoms[0]]
+            own = np.isin(bonds, atoms[:1]).any(axis=1) | np.isin(bonds, atoms).all(axis=1)
+            own_atoms[atoms] = True
+        if mark not in seen:
+            seen.add(mark)
+            rows.append((owner, start, water, own, own_atoms))
 
-    total = 0
-    for interaction in diagram.interactions:
-        if interaction.kind != "metal_coordination" \
-                or interaction.residue_key not in index:
+    for inter in diagram.interactions:
+        if inter.kind == "hydrophobic" or inter.residue_key not in index:
             continue
-        metal = p[index[interaction.residue_key]]
-        for atom in interaction.ligand_atoms:
-            if not 0 <= atom < len(problem.ligand):
-                continue
-            anchor = problem.ligand[atom]
-            for left, right in problem.ligand_bonds:
-                left, right = int(left), int(right)
-                if atom in (left, right):
-                    continue
-                a, b = problem.ligand[left], problem.ligand[right]
-                total += int(
-                    side(anchor, metal, a) * side(anchor, metal, b) < -1e-8
-                    and side(a, b, anchor) * side(a, b, metal) < -1e-8
-                )
-    return total
+        atoms = [a for a in inter.ligand_atoms if 0 <= a < n_atoms]
+        if not atoms:
+            continue
+        ring = inter.kind in RING_ANCHORED
+        if not ring:
+            atoms = sorted(atoms)
+            if inter.anchor_atom in atoms:
+                atoms = [inter.anchor_atom] + [a for a in atoms if a != inter.anchor_atom]
+        owner = index[inter.residue_key]
+        water = index.get(inter.via_water, -1) if inter.via_water else -1
+        if water >= 0:
+            add(water, atoms, ring)
+            add(owner, None, water=water)
+        elif inter.kind == "metal_coordination":
+            for atom in atoms:
+                add(owner, [atom])
+        else:
+            add(owner, atoms, ring)
+    if not rows:
+        return _Lines(np.zeros(0, dtype=int), np.zeros((0, 2)), np.zeros(0, dtype=int),
+                      np.zeros((0, len(bonds)), dtype=bool), np.zeros((0, n_atoms), dtype=bool))
+    owner, start, water, own, own_atoms = zip(*rows)
+    return _Lines(np.array(owner), np.array(start, dtype=float), np.array(water),
+                  np.array(own, dtype=bool).reshape(len(rows), len(bonds)),
+                  np.array(own_atoms, dtype=bool).reshape(len(rows), n_atoms))
+
+
+#: Rim-to-drawing gap of a residue glyph sitting in a concavity of the ligand,
+#: measured to atom centres and bonds: room for an atom label plus air.
+CONCAVE_MARGIN = 30.0
+#: Margin the outer part of a strong line keeps from the drawn ligand.
+LINE_CLEARANCE = 10.0
+#: A line passing closer than this to a foreign atom centre reads as drawn
+#: through it (over its label, for a heteroatom): about a quarter bond.
+ATOM_CLEARANCE = 12.0
+
+
+def _segment_hits(problem, start: np.ndarray, end: np.ndarray,
+                  own: np.ndarray, own_atoms: np.ndarray) -> np.ndarray:
+    """Bonds crossed plus foreign atoms grazed by each segment ``start -> end``.
+
+    Everything broadcasts over the leading axes: ``start``/``end`` are
+    ``(..., 2)``, ``own`` is ``(..., bonds)`` and ``own_atoms`` ``(..., atoms)``.
+    """
+    lig = problem.ligand
+    seg = end - start
+    start, seg = np.broadcast_arrays(start, seg)
+    len2 = np.maximum(np.sum(seg * seg, axis=-1), 1e-9)
+    rel = lig - start[..., None, :]                                  # (..., atoms, 2)
+    along = np.clip(np.sum(rel * seg[..., None, :], axis=-1) / len2[..., None], 0.0, 1.0)
+    gap = rel - along[..., None] * seg[..., None, :]
+    hits = np.sum((np.hypot(gap[..., 0], gap[..., 1]) < ATOM_CLEARANCE) & ~own_atoms, axis=-1)
+    bonds = problem.ligand_bonds.reshape(-1, 2).astype(int)
+    if not len(bonds):
+        return hits
+    a, b = lig[bonds[:, 0]], lig[bonds[:, 1]]
+
+    def cross(u, v):
+        return u[..., 0] * v[..., 1] - u[..., 1] * v[..., 0]
+
+    s = start[..., None, :]
+    o1 = cross(seg[..., None, :], a - s)
+    o2 = cross(seg[..., None, :], b - s)
+    o3 = cross(b - a, s - a)
+    o4 = cross(b - a, (start + seg)[..., None, :] - a)
+    crossed = (o1 * o2 < -1e-9) & (o3 * o4 < -1e-9) & ~own
+    return hits + np.sum(crossed, axis=-1)
+
+
+def _glyph_bond_hits(problem, lines: _Lines, glyph: int, ends: np.ndarray,
+                     p: np.ndarray, placed: np.ndarray) -> np.ndarray:
+    """Bond crossings of one glyph's lines for each candidate position in ``ends``."""
+    rows = lines.rows_of(glyph)
+    rows = rows[(lines.water[rows] < 0) | placed[np.maximum(lines.water[rows], 0)]]
+    if not len(rows):
+        return np.zeros(len(ends), dtype=int)
+    start = lines.starts(p, rows)[:, None, :]
+    hits = _segment_hits(problem, start, ends[None, :, :],
+                         lines.own[rows][:, None, :], lines.own_atoms[rows][:, None, :])
+    return hits.sum(axis=0)
+
+
+def _line_bond_crossings(problem, p: np.ndarray, lines: _Lines, *, culprits: bool = False):
+    """Strong lines drawn across the ligand, counted per crossed bond or grazed atom."""
+    if not len(lines.owner):
+        if culprits:
+            return 0, set()
+        return np.zeros(len(p)) if p.ndim == 3 else 0
+    rows = np.arange(len(lines.owner))
+    if p.ndim == 3:     # a stack of layouts -> one count each
+        start = np.where((lines.water >= 0)[:, None], p[:, np.maximum(lines.water, 0)],
+                         lines.start)
+        return _segment_hits(problem, start, p[:, lines.owner],
+                             lines.own, lines.own_atoms).sum(axis=-1)
+    hits = _segment_hits(problem, lines.starts(p, rows), p[lines.owner],
+                         lines.own, lines.own_atoms)
+    total = int(hits.sum())
+    if not culprits:
+        return total
+    bad = hits > 0
+    blame = set(lines.owner[bad].tolist()) | set(lines.water[bad & (lines.water >= 0)].tolist())
+    return total, blame
+
+
+#: Spacing of the points sampled along each drawn bond for ``_Clearance``.
+#: Half of it is the worst distance error, far below the margins it checks.
+_CLEARANCE_STEP = 3.0
+
+
+class _Clearance:
+    """Distance from points to the drawn ligand, capped at ``limit``.
+
+    The atoms and bonds are sampled every ``_CLEARANCE_STEP`` px into a
+    KD-tree once per candidate; a query is then a bounded nearest-neighbour
+    search instead of a points x primitives distance matrix.
+    """
+
+    def __init__(self, problem) -> None:
+        from scipy.spatial import cKDTree
+
+        lig = problem.ligand
+        bonds = problem.ligand_bonds.reshape(-1, 2).astype(int)
+        a, b = lig[bonds[:, 0]], lig[bonds[:, 1]]
+        longest = float(np.max(np.hypot(*(b - a).T), initial=0.0))
+        u = np.linspace(0.0, 1.0, max(2, int(longest / _CLEARANCE_STEP)) + 1)[1:-1, None, None]
+        cloud = [lig, (a + u * (b - a)).reshape(-1, 2)]
+        self._tree = cKDTree(np.concatenate(cloud))
+
+    def __call__(self, pts: np.ndarray, limit: float) -> np.ndarray:
+        d, _ = self._tree.query(pts, distance_upper_bound=limit)
+        return np.minimum(d, limit)
+
+    def away(self, pts: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Distance to the drawing and the unit direction away from it."""
+        d, k = self._tree.query(pts)
+        vector = pts - self._tree.data[k]
+        return d, vector / np.maximum(d, 1e-8)[:, None]
 
 
 def _legalize_pins(problem, fixed: dict[str, tuple[float, float]] | None,
@@ -565,16 +819,19 @@ def _one_candidate(diagram: Diagram, view: list[tuple[float, float]], projection
         rotation=rotation, mirror=mirror, _cache=cache,
     )
     seed_positions = _legalize_pins(problem, seed_positions, pinned)
+    lines = _line_specs(problem, diagram)
     p, target = _place_discrete(
-        problem, cache, diagram, glyph_radius, variant, seed_positions, pinned
+        problem, cache, diagram, glyph_radius, variant, seed_positions, pinned, lines
     )
-    p = _settle_local(problem, p, target, pinned, seed_positions, iterations=8)
-    p, crossings = _repair_discrete(problem, p, target, pinned, max_swaps)
-    p = _settle_local(problem, p, p.copy(), pinned, seed_positions, iterations=2)
+    concave = np.zeros(len(p), dtype=bool)
+    concave[lines.owner] = True
+    p = _settle_local(problem, p, target, pinned, seed_positions, iterations=8, concave=concave)
+    p, crossings = _repair_discrete(problem, p, target, pinned, max_swaps, lines)
+    p = _settle_local(problem, p, p.copy(), pinned, seed_positions, iterations=2, concave=concave)
     # Recount after the final hard-clearance pass.
     from .layout import _count_crossings
     crossings = _count_crossings(problem, p, glyph_radius)
-    crossings += _metal_route_crossings(problem, p, diagram)
+    crossings += _line_bond_crossings(problem, p, lines)
     energy = problem.objective(p.ravel())[0]
     # Readability dominates: a crossed strong line is never traded for a
     # slightly smaller shell.  Horizontal ligand presentation breaks close ties.
@@ -594,7 +851,6 @@ def solve_layout_fast(
     *,
     glyph_radius: float,
     weights,
-    rotations: int,
     seed_positions: dict[str, tuple[float, float]] | None,
     pinned: set[str] | None,
     max_swaps: int,
