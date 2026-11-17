@@ -124,8 +124,12 @@ def main(argv: list[str] | None = None) -> int:
     panels = args.gui if args.gui is not None else ([] if args.output else ["diagram"])
     from_json = args.input.suffix.lower() == ".json"
 
-    from ms_contactmap.export import ensure_app
-    app = ensure_app()
+    if panels:  # a window: the real display, not ensure_app()'s offscreen batch platform
+        from PySide6.QtWidgets import QApplication
+        app = QApplication.instance() or QApplication(sys.argv[:1])
+    else:
+        from ms_contactmap.export import ensure_app
+        app = ensure_app()
     from ms_contactmap.widget import InteractionDiagramWidget
 
     site = None
