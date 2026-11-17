@@ -39,3 +39,13 @@ def test_batch_export_by_suffix(tmp_path):
         main([str(DATA / "4uwh.pdb"), "-o", str(tmp_path / "d.pdf")])
     with pytest.raises(SystemExit):
         main([str(DATA / "4uwh.pdb"), "--gui", "diagram,4d"])
+
+
+def test_mmcif_input_reads_like_its_pdb(tmp_path):
+    from Bio.PDB import MMCIFIO, PDBParser
+
+    cif = tmp_path / "4uwh.cif"
+    writer = MMCIFIO()
+    writer.set_structure(PDBParser(QUIET=True).get_structure("4uwh", DATA / "4uwh.pdb"))
+    writer.save(str(cif))
+    assert find_site(cif) == ("JXM", "A", 1876)

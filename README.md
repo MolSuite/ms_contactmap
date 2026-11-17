@@ -20,7 +20,7 @@ ms_contactmap complex.pdb --gui diagram,3d,table   # plus PyMOL and the interact
 ms_contactmap complex.pdb --smiles "CCO" -o contacts.json -o contacts.png
 ```
 
-The `3d` panel needs `pip install "ms_contactmap[3d]"`.
+The input may be PDB or mmCIF (`.cif`). The `3d` panel needs `pip install "ms_contactmap[3d]"`.
 
 Reference structures and ligand catalogs in `data/` are development and test
 fixtures; the installed package does not depend on them.

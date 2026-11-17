@@ -92,7 +92,7 @@ def _panels(value: str) -> list[str]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="ms_contactmap", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("input", type=Path, help="PDB file of the complex, or a saved diagram .json")
+    parser.add_argument("input", type=Path, help="PDB or mmCIF file of the complex, or a saved diagram .json")
     parser.add_argument("-o", "--output", type=Path, action="append", default=[],
                         help="write .json, .png or .svg (by suffix); repeat for several")
     parser.add_argument("--gui", type=_panels, nargs="?", const=["diagram"], default=None,

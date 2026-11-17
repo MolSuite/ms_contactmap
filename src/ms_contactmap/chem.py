@@ -72,44 +72,66 @@ class PdbAtom:
         return (self.chain, self.resnum, self.icode)
 
 
+def structure_lines(path) -> list[str]:
+    """The text of a PDB file, or of an mmCIF one rewritten as PDB records.
+
+    mmCIF goes through Biopython's PDB writer with the author chain and residue
+    numbers, the ones a user types and PyMOL shows.
+    ponytail: PDB columns cap the structure at 99,999 atoms and one-letter chains.
+    """
+    path = Path(path)
+    if path.suffix.lower() not in (".cif", ".mmcif"):
+        return path.read_text(encoding="utf-8", errors="replace").splitlines()
+    import io
+
+    from Bio.PDB import PDBIO, MMCIFParser
+
+    writer = PDBIO()
+    writer.set_structure(MMCIFParser(QUIET=True).get_structure(path.stem, str(path))[0])
+    buffer = io.StringIO()
+    writer.save(buffer)
+    return buffer.getvalue().splitlines()
+
+
 def read_pdb_atoms(pdb_path) -> list[PdbAtom]:
     """Parse every ATOM/HETATM of the first model, keeping only major altlocs.
+
+    ``pdb_path`` may also be an mmCIF file; see :func:`structure_lines`.
 
     Hydrogens are kept here -- callers that want heavy atoms filter on
     ``element``.  Records with unparsable coordinates are skipped silently;
     they are always malformed vendor output, never something we could use.
     """
     atoms: list[PdbAtom] = []
-    with open(pdb_path, "r", encoding="utf-8", errors="replace") as handle:
-        for line in handle:
-            tag = line[:6]
-            if tag == "ENDMDL":
-                break
-            if tag not in ("ATOM  ", "HETATM"):
-                continue
-            altloc = line[16].strip()
-            if altloc not in KEPT_ALTLOCS:
-                continue
-            try:
-                atoms.append(
-                    PdbAtom(
-                        serial=int(line[6:11]),
-                        name=line[12:16].strip(),
-                        altloc=altloc,
-                        resname=line[17:20].strip(),
-                        chain=line[21].strip() or "_",
-                        resnum=int(line[22:26]),
-                        icode=line[26].strip(),
-                        x=float(line[30:38]),
-                        y=float(line[38:46]),
-                        z=float(line[46:54]),
-                        element=(line[76:78].strip() or line[12:16].strip()[:1]).upper(),
-                        hetatm=tag == "HETATM",
-                        line=line.rstrip("\n"),
-                    )
+    for line in structure_lines(pdb_path):
+        tag = line[:6]
+        if tag == "ENDMDL":
+            break
+        if tag not in ("ATOM  ", "HETATM"):
+            continue
+        altloc = line[16].strip()
+        if altloc not in KEPT_ALTLOCS:
+            continue
+        try:
+            atoms.append(
+                PdbAtom(
+                    serial=int(line[6:11]),
+                    name=line[12:16].strip(),
+                    altloc=altloc,
+                    resname=line[17:20].strip(),
+                    chain=line[21].strip() or "_",
+                    resnum=int(line[22:26]),
+                    icode=line[26].strip(),
+                    x=float(line[30:38]),
+                    y=float(line[38:46]),
+                    z=float(line[46:54]),
+                    element=(line[76:78].strip() or line[12:16].strip()[:1]).upper(),
+                    hetatm=tag == "HETATM",
+                    line=line.rstrip("\n"),
                 )
-            except ValueError:
-                continue
+            )
+        except ValueError:
+            continue
     return atoms
 
 
