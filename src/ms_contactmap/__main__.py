@@ -15,6 +15,11 @@ import argparse
 import sys
 from pathlib import Path
 
+if __package__ in (None, ""):
+    # Run as a file (an IDE's Run button): the package's own folder is on sys.path,
+    # not the one that holds it, so the absolute imports below would not resolve.
+    sys.path[0] = str(Path(__file__).resolve().parents[1])
+
 OUTPUTS = (".json", ".png", ".svg")
 
 
@@ -28,7 +33,7 @@ def _use_own_settings(widget, *, apply: bool) -> None:
     An embedding app (AMDockVS) never comes through here; it edits the same file from
     its settings dialog.  Batch exports ignore it too, so scripts stay reproducible.
     """
-    from .settings import load_view_settings, save_view_settings
+    from ms_contactmap.settings import load_view_settings, save_view_settings
 
     if apply:
         try:
@@ -46,7 +51,7 @@ def find_site(pdb: Path, ligand=None, chain=None, resnum=None, *, ask=None):
     first and different ligands are an error.  No small molecule at all
     (protein-protein, peptide, nucleic acid) is not supported yet.
     """
-    from .chem import find_ligands, read_pdb_atoms
+    from ms_contactmap.chem import find_ligands, read_pdb_atoms
 
     atoms = read_pdb_atoms(pdb)
     sites = find_ligands(atoms, ligand, chain, resnum)
@@ -75,7 +80,7 @@ def find_site(pdb: Path, ligand=None, chain=None, resnum=None, *, ask=None):
 
 
 def _panels(value: str) -> list[str]:
-    from .gui import PANELS
+    from ms_contactmap.gui import PANELS
 
     panels = [p.strip().lower() for p in value.split(",") if p.strip()]
     unknown = [p for p in panels if p not in PANELS]
@@ -119,20 +124,20 @@ def main(argv: list[str] | None = None) -> int:
     panels = args.gui if args.gui is not None else ([] if args.output else ["diagram"])
     from_json = args.input.suffix.lower() == ".json"
 
-    from .export import ensure_app
+    from ms_contactmap.export import ensure_app
     app = ensure_app()
-    from .widget import InteractionDiagramWidget
+    from ms_contactmap.widget import InteractionDiagramWidget
 
     site = None
     if from_json:
         widget = InteractionDiagramWidget.from_json(args.input)
         diagram = widget.diagram
     else:
-        from .interactions import build_diagram
+        from ms_contactmap.interactions import build_diagram
 
         ask = None
         if panels:
-            from .gui import pick_ligand
+            from ms_contactmap.gui import pick_ligand
             ask = pick_ligand
         try:
             site = find_site(args.input, args.ligand, args.chain, args.resnum, ask=ask)
@@ -166,7 +171,7 @@ def main(argv: list[str] | None = None) -> int:
     if not panels:
         return 0
 
-    from .gui import ContactMapWindow
+    from ms_contactmap.gui import ContactMapWindow
 
     selection = None
     if site is not None:
