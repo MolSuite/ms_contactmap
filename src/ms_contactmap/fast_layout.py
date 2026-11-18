@@ -57,6 +57,15 @@ def _priority(diagram: Diagram, key: str) -> tuple[int, int, int, str]:
     return (conductor_rank, -distinct, best, key)
 
 
+def _placed_water(problem, inter, placed_mask) -> int | None:
+    """Index of the placed water ``inter`` reaches ``key`` through, if any."""
+    try:
+        w = problem.keys.index(inter.via_water)
+    except ValueError:
+        return None
+    return w if placed_mask[w] else None
+
+
 def _angle_delta(a: np.ndarray | float, b: float) -> np.ndarray:
     return (np.asarray(a) - b + math.pi) % (2.0 * math.pi) - math.pi
 
@@ -131,6 +140,16 @@ def _place_discrete(problem, cache: dict, diagram: Diagram, glyph_radius: float,
             atom_ids = _interaction_atoms(diagram, key)
         atom_ids = [a for a in atom_ids if 0 <= a < len(problem.ligand)]
         anchors = problem.ligand[atom_ids] if atom_ids else problem.anchors[i:i + 1]
+        # A water-bridged line starts at the water, already placed: aiming at
+        # the ligand atom instead left the two legs as a fork off the water.
+        own = [inter for inter in diagram.interactions
+               if inter.residue_key == key and inter.kind != "hydrophobic"]
+        waters = [_placed_water(problem, inter, placed_mask) for inter in own if inter.via_water]
+        waters = [w for w in waters if w is not None]
+        if waters:
+            direct = [a for inter in own if not inter.via_water
+                      for a in inter.ligand_atoms if 0 <= a < len(problem.ligand)]
+            anchors = np.concatenate([problem.ligand[direct].reshape(-1, 2), p[waters]])
 
         residue = diagram.residue(key)
         is_water = residue.ref.residue_class == "water"
@@ -191,6 +210,14 @@ def _place_discrete(problem, cache: dict, diagram: Diagram, glyph_radius: float,
         score = distances.max(axis=1) + 0.18 * distances.mean(axis=1)
         score += 18.0 * np.abs(_angle_delta(candidate_angles, ideal))
         score += layer * (30.0 if is_context else 240.0)
+        # Solvent exposure wins over the residue: a protein glyph stays out of
+        # the bearings the surface leaves open and settles at a side of it.
+        if len(problem.open_angle) and not (is_water or is_metal):
+            delta = np.abs(_angle_delta(candidate_angles[:, None], problem.open_angle[None, :]))
+            distance = np.linalg.norm(candidates, axis=1)
+            reach = problem.open_half[None, :] + np.arctan2(problem.radii[i], distance)[:, None]
+            arc = np.maximum(0.0, reach - delta).max(axis=1) * distance
+            score += OPEN_GAP_COST * arc ** 2
         # A glyph may enter a bay of the drawing but never sit on it.
         room = ligand_gap(candidates, room_limit)
         score += 600.0 * np.maximum(0.0, np.minimum(concave_clearance[i], problem.ligand_clearance[i]) - room) ** 2
@@ -247,6 +274,10 @@ def _place_discrete(problem, cache: dict, diagram: Diagram, glyph_radius: float,
 
     return p, target
 
+
+#: Per px^2 of a glyph's arc inside a solvent gap: above every soft term,
+#: below a glyph overlap, so a crowded side can still spill into the gap.
+OPEN_GAP_COST = 40.0
 
 #: Slots per residue that get the line terms, after the cheap ranking.
 SHORTLIST = 48
@@ -643,7 +674,7 @@ def _line_specs(problem, diagram: Diagram) -> _Lines:
 
 #: Rim-to-drawing gap of a residue glyph sitting in a concavity of the ligand,
 #: measured to atom centres and bonds: room for an atom label plus air.
-CONCAVE_MARGIN = 30.0
+CONCAVE_MARGIN = 46.0
 #: Margin the outer part of a strong line keeps from the drawn ligand.
 LINE_CLEARANCE = 10.0
 #: A line passing closer than this to a foreign atom centre reads as drawn

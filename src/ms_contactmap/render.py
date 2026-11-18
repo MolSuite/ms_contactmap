@@ -66,6 +66,7 @@ from .model import (
     segments_cross,
 )
 from . import style as st
+from .layout import open_bearings
 from .style import DiagramStyle
 
 # ---------------------------------------------------------------------------
@@ -119,12 +120,21 @@ BACKBONE_MAX_SPAN = 260.0
 
 RIBBON_WIDTH = 8.0
 RIBBON_LIGAND_CLEARANCE = 24.0
-RIBBON_DROPLET_INSET = 46.0
-#: Radius of the final rolling probe.  The original 49 px radius erased useful
-#: pocket curvature; 18 px suppresses pixel-scale wobble while preserving the
-#: broad indentations made by the optimized residue positions.
-RIBBON_SURFACE_PROBE_RADIUS = 18.0
-#: The styled surface rolls a smaller probe: it follows the pocket more closely.
+#: The pocket surface keeps further off the ligand than connectors do: at 24 px
+#: its edge touched atom labels (4ps5, 4uwh's O at ILE A:685); 40 px still
+#: hugged the ligand too tightly.
+RIBBON_SURFACE_CLEARANCE = 55.0
+#: Radius of the disc rolled over the 2D ligand to close the clefts between
+#: its branches.  A small one (36 px) left a thin, hungry-looking outline.
+RIBBON_LIGAND_PROBE = 100.0
+#: Arc-length spacing, in px, of the surface's points.
+RIBBON_ARC_STEP = 4.0
+#: Smoothing of the surface along its length (Gaussian sigma, px).
+RIBBON_SURFACE_PROBE_RADIUS = 30.0
+#: How far that smoothing pulls a convex bulge in; the outline starts this
+#: much further out so the drawn surface keeps RIBBON_SURFACE_CLEARANCE.
+RIBBON_SMOOTHING_SHRINK = 8.0
+#: The styled surface is smoothed less: it follows the ligand more closely.
 STYLED_SURFACE_PROBE_RADIUS = 11.0
 #: Angular sampling interval for the radial surface reconstruction.
 RIBBON_SAMPLE_STEP = math.radians(1.0)
@@ -787,10 +797,16 @@ class Ribbons(QGraphicsObject):
 def _ribbon_runs(diagram: Diagram, positions: dict[str, QPointF],
                  center: QPointF, ligand_coords: list[tuple[float, float]],
                  look: DiagramStyle | None = None) -> list[_Ribbon]:
+    from scipy.ndimage import gaussian_filter1d
+
     palette = None if look is None else look.palette
     probe = RIBBON_SURFACE_PROBE_RADIUS if look is None else STYLED_SURFACE_PROBE_RADIUS
     metal_reach = (DROPLET_RADIUS * STAR_REACH if look is not None and look.metals == "star"
                    else DROPLET_RADIUS)
+    # The sphere plus room for its number, which may sit on any side of it.
+    water_reach = (DROPLET_RADIUS * WATER_RADIUS_FRAC * (1.0 if look is None else STYLED_WATER_SCALE)
+                   + WATER_LABEL_GAP + 4 * DROPLET_CODE_PX)
+    exposed = _exposed_bearings(diagram, ligand_coords, center)
     entries = []
     for residue in diagram.residues:
         p = positions.get(residue.key)
@@ -833,6 +849,21 @@ def _ribbon_runs(diagram: Diagram, positions: dict[str, QPointF],
         runs[0] = [(a - 2 * math.pi, r, c)
                    for a, r, c in runs.pop()] + runs[0]
 
+    # Waters and metals are pocket waypoints, not protein-surface residues;
+    # the surface goes round them (a water with room for its number), so they
+    # join the ligand as discs before the probe rolls.
+    discs = []
+    for residue in diagram.residues:
+        q = positions.get(residue.key)
+        if q is None or residue.ref.residue_class not in ("metal", "water"):
+            continue
+        reach = metal_reach if residue.ref.residue_class == "metal" else water_reach
+        discs.append((q.x(), q.y(), max(0.0, reach + 10.0 - RIBBON_SURFACE_CLEARANCE)))
+    circle = np.arange(0.0, 2.0 * math.pi, RIBBON_SAMPLE_STEP)
+    outline = _ligand_surface(ligand_coords, center, circle,
+                              RIBBON_SURFACE_CLEARANCE + RIBBON_SMOOTHING_SHRINK,
+                              RIBBON_LIGAND_PROBE, discs)
+
     ribbons: list[_Ribbon] = []
     for run in runs:
         if len(run) < 2:
@@ -840,64 +871,37 @@ def _ribbon_runs(diagram: Diagram, positions: dict[str, QPointF],
         angles = ([run[0][0] - RIBBON_OVERHANG]
                   + [a for a, _, _ in run]
                   + [run[-1][0] + RIBBON_OVERHANG])
-        radii = [run[0][1]] + [r for _, r, _ in run] + [run[-1][1]]
         residue_classes = [run[0][2]] + [c for _, _, c in run] + [run[-1][2]]
         classes = [RESIDUE_STYLES[value].base if palette is None
                    else st.nature_color(value, "medium" if palette == "soft" else "vivid")
                    for value in residue_classes]
 
-        # Reconstruct a radial contour after optimization, then roll a probe
-        # twice the ligand probe over it.  Unlike an interpolating Catmull-Rom
-        # spline, this does not reproduce every local radial wobble or overshoot
-        # between two droplets at different depths.
         count = max(2, int(math.ceil((angles[-1] - angles[0]) / RIBBON_SAMPLE_STEP)) + 1)
         sample_angles = np.linspace(angles[0], angles[-1], count)
-        raw = np.interp(sample_angles, angles, np.asarray(radii) - RIBBON_DROPLET_INSET)
-        step = max(float(sample_angles[1] - sample_angles[0]), 1e-6)
-        mean_radius = max(float(np.mean(raw)), 1.0)
-        sigma = (probe / mean_radius) / step
-        kernel = _gaussian_samples(sigma)
-        pad = len(kernel) // 2
-        smooth = np.convolve(np.pad(raw, (pad, pad), mode="edge"), kernel, mode="valid")
-        clear = np.array([
-            _ligand_reach(ligand_coords, center, float(angle)) + RIBBON_LIGAND_CLEARANCE
-            for angle in sample_angles
-        ])
-        smooth = np.maximum(smooth, clear)
-
-        # Waters and metals are exposed pocket waypoints, not protein-surface
-        # residues.  A metal can nevertheless sit at the same bearing as two
-        # protein droplets; interpolation would then draw the ribbon through
-        # its coordination polygon.  Raise a small smooth local shoulder so
-        # the complete metal remains on the ligand-facing side of the surface.
-        for residue in diagram.residues:
-            if residue.ref.residue_class != "metal":
-                continue
-            metal = positions.get(residue.key)
-            if metal is None:
-                continue
-            dx, dy = metal.x() - center.x(), metal.y() - center.y()
-            metal_angle = math.atan2(dy, dx)
-            while metal_angle < sample_angles[0]:
-                metal_angle += 2.0 * math.pi
-            while metal_angle > sample_angles[-1]:
-                metal_angle -= 2.0 * math.pi
-            if metal_angle < sample_angles[0] or metal_angle > sample_angles[-1]:
-                continue
-            at = int(np.argmin(np.abs(sample_angles - metal_angle)))
-            distance = math.hypot(dx, dy)
-            required = distance + metal_reach + 10.0
-            lift = max(0.0, required - float(smooth[at]))
-            if lift > 0.0:
-                # Wide enough to clear the whole glyph, not just its centre.
-                sigma = max(0.14, 1.2 * metal_reach / max(distance, 1.0))
-                smooth += lift * np.exp(-0.5 * ((sample_angles - metal_angle) / sigma) ** 2)
-        pts = [
-            QPointF(center.x() + radius * math.cos(angle),
-                    center.y() + radius * math.sin(angle))
-            for angle, radius in zip(sample_angles, smooth)
-        ]
+        # The surface is the ligand's own: a probe rolled over the 2D drawing.
+        # Residues only colour it and say where it runs.
+        raw = np.interp(sample_angles, circle, outline, period=2.0 * math.pi)
+        # Smooth in the plane, by arc length: smoothing by angle does nothing
+        # where the surface passes close to the centre.  Resample evenly first.
+        xy = np.column_stack([center.x() + raw * np.cos(sample_angles),
+                              center.y() + raw * np.sin(sample_angles)])
+        arc = np.concatenate([[0.0], np.cumsum(np.hypot(*np.diff(xy, axis=0).T))])
+        even = np.linspace(0.0, arc[-1], max(2, int(arc[-1] / RIBBON_ARC_STEP) + 1))
+        xy = np.column_stack([gaussian_filter1d(np.interp(even, arc, xy[:, k]),
+                                                probe / RIBBON_ARC_STEP, mode="nearest")
+                              for k in (0, 1)])
+        bearing = np.unwrap(np.arctan2(xy[:, 1] - center.y(), xy[:, 0] - center.x()))
+        sample_angles = bearing + 2.0 * math.pi * round((sample_angles[0] - bearing[0])
+                                                        / (2.0 * math.pi))
+        pts = [QPointF(x, y) for x, y in xy]
         span = len(pts) - 1
+        # Where the ligand meets the solvent the protein does not close over
+        # it: the surface stops there, fading out like at its own ends.
+        open_ = np.array([_bearing_open(exposed, float(a)) for a in sample_angles], dtype=bool)
+        cut = np.flatnonzero(open_)
+        edge = np.full(len(pts), np.inf)
+        for i in cut:
+            edge = np.minimum(edge, np.abs(np.arange(len(pts)) - i))
         colors = []
         class_axis = np.asarray(angles)
         for i, angle in enumerate(sample_angles):
@@ -905,21 +909,71 @@ def _ribbon_runs(diagram: Diagram, positions: dict[str, QPointF],
             k = float(np.interp(angle, class_axis, np.arange(len(classes), dtype=float)))
             lo = min(int(k), len(classes) - 2)
             col = _blend(QColor(classes[lo]), QColor(classes[lo + 1]), k - lo)
-            fade = min(1.0, t / RIBBON_FADE, (1.0 - t) / RIBBON_FADE)
+            fade = min(1.0, t / RIBBON_FADE, (1.0 - t) / RIBBON_FADE,
+                       float(edge[i]) / RIBBON_CUT_FADE_SAMPLES)
             col.setAlpha(int(255 * max(0.0, fade) ** 0.9))
             colors.append(col)
-        ribbons.append(_Ribbon(pts, colors))
+        start = 0
+        for stop in [*cut, len(pts)]:
+            if stop - start >= 2:
+                ribbons.append(_Ribbon(pts[start:stop], colors[start:stop]))
+            start = stop + 1
     return ribbons
 
 
-def _gaussian_samples(sigma: float) -> np.ndarray:
-    """Open-curve Gaussian kernel used by the final rolling-probe pass."""
-    if sigma <= 0.35:
-        return np.ones(1)
-    radius = max(1, int(math.ceil(3.0 * sigma)))
-    values = np.arange(-radius, radius + 1, dtype=float)
-    kernel = np.exp(-0.5 * (values / sigma) ** 2)
-    return kernel / kernel.sum()
+#: Samples (1 degree each) over which the surface fades into such a gap.
+RIBBON_CUT_FADE_SAMPLES = 14
+
+
+def _exposed_bearings(diagram: Diagram, ligand_coords, center: QPointF) -> list[tuple[float, float]]:
+    """``(bearing, half width)`` of every surface gap; see :func:`~ms_contactmap.layout.open_bearings`."""
+    if not diagram.exposure or not ligand_coords:
+        return []
+    bond = _median_bond_length(diagram, ligand_coords)
+    return [(angle, half) for _, angle, half in
+            open_bearings(ligand_coords, diagram.exposure, bond, (center.x(), center.y()))]
+
+
+def _bearing_open(gaps: list[tuple[float, float]], angle: float) -> bool:
+    return any(abs(_wrap(angle - bearing)) <= half for bearing, half in gaps)
+
+
+def _ligand_surface(coords, center: QPointF, angles: np.ndarray,
+                    offset: float, probe: float, discs=()) -> np.ndarray:
+    """Radius, at every angle, of the 2D ligand's surface: the atoms (and
+    ``discs``, ``(x, y, radius)``) grown by ``offset`` and closed by a rolling
+    ``probe`` disc, which fills the clefts between branches.  Read as the
+    outermost boundary along each ray."""
+    from scipy.ndimage import distance_transform_edt, map_coordinates
+
+    cell = 1.0  # px
+    rel = np.asarray(coords, dtype=float).reshape(-1, 2) - (center.x(), center.y())
+    discs = [(x - center.x(), y - center.y(), max(radius, cell)) for x, y, radius in discs]
+    reach = max([float(np.abs(rel).max())] + [max(abs(x), abs(y)) + r for x, y, r in discs])
+    span = reach + offset + 2 * probe + 4 * cell
+    n = int(math.ceil(2 * span / cell)) + 1
+    atoms = np.ones((n, n), dtype=bool)
+    ij = np.rint((rel + span) / cell).astype(int)
+    atoms[ij[:, 1], ij[:, 0]] = False
+    axis = np.arange(n) * cell - span
+    for x, y, radius in discs:
+        atoms[np.hypot(axis[None, :] - x, axis[:, None] - y) <= radius] = False
+    near = distance_transform_edt(atoms, sampling=cell)
+    grown = near <= offset + probe  # dilation by offset + probe ...
+    # ... then erosion by probe: inside where depth >= 0.  A continuous field,
+    # so the boundary is found between grid points, without pixel steps.
+    depth = distance_transform_edt(grown, sampling=cell) - probe
+    radii = np.arange(0.0, span, cell / 2)
+    xs = np.cos(angles)[:, None] * radii
+    ys = np.sin(angles)[:, None] * radii
+    field = map_coordinates(depth, [(ys + span) / cell, (xs + span) / cell], order=1)
+    # Outermost crossing per ray (the shape need not be star-shaped).
+    inside = field >= 0.0
+    last = np.minimum(len(radii) - 2, len(radii) - 1 - np.argmax(inside[:, ::-1], axis=1))
+    rows = np.arange(len(angles))
+    a, b = field[rows, last], field[rows, last + 1]
+    frac = np.clip(a / np.maximum(a - b, 1e-9), 0.0, 1.0)
+    return np.where(inside.any(axis=1), radii[last] + frac * (radii[1] - radii[0]), offset)
 
 
 # ---------------------------------------------------------------------------
@@ -1556,6 +1610,30 @@ class LigandItem(QGraphicsSvgItem):
         self.setZValue(Z_LIGAND)
 
 
+def _charge_cations(mol, diagram: Diagram) -> None:
+    """Draw the ligand cations the detector used in their protonated form.
+
+    An amine is a cation by its pH-7 pKa, not by a formal charge in the input,
+    so a salt bridge or pi-cation contact could start from an N drawn neutral.
+    Acids get the same treatment in :func:`chem._ionise_acids`; this one is
+    drawing-only, as the detector already reads these groups as charged.
+    """
+    for inter in diagram.interactions:
+        if inter.kind not in ("salt_bridge", "pi_cation") or not inter.ligand_is_donor:
+            continue
+        atoms = [mol.GetAtomWithIdx(i) for i in inter.ligand_atoms if i < mol.GetNumAtoms()]
+        if any(a.GetFormalCharge() for a in atoms):
+            continue
+        # An amidine or guanidine takes its charge on the imine N.
+        nitrogens = sorted((a for a in atoms if a.GetAtomicNum() == 7),
+                           key=lambda a: -max((b.GetBondTypeAsDouble() for b in a.GetBonds()),
+                                              default=0))
+        if nitrogens:
+            nitrogens[0].SetFormalCharge(1)
+            nitrogens[0].SetNoImplicit(False)
+    mol.UpdatePropertyCache(strict=False)
+
+
 def _draw_ligand(diagram: Diagram, ligand_coords: list[tuple[float, float]]) -> LigandItem:
     """Render the ligand and reconcile RDKit's canvas with the layout's frame.
 
@@ -1571,6 +1649,7 @@ def _draw_ligand(diagram: Diagram, ligand_coords: list[tuple[float, float]]) -> 
     ``GetDrawCoords(i)`` maps onto ``ligand_coords[i]`` exactly.
     """
     mol = Chem.Mol(diagram.mol)
+    _charge_cations(mol, diagram)
     mol.RemoveAllConformers()
     conf = Chem.Conformer(mol.GetNumAtoms())
     for i, (x, y) in enumerate(ligand_coords):
@@ -1648,6 +1727,8 @@ class ResidueDroplet(QGraphicsObject):
         self.is_metal = coordination is not None
         self.radius = DROPLET_RADIUS
         self.text_dy = 0.0
+        #: Bearing of a water's number from its sphere; see :func:`_place_water_labels`.
+        self.label_angle = 0.0
         self.corners: list[QPointF] = []
         if look is not None and not self.is_metal and not self.is_water:
             self.polygon, self.text_dy = glyph_polygon(
@@ -1716,13 +1797,26 @@ class ResidueDroplet(QGraphicsObject):
         pad = SHADOW_OFFSET + SHADOW_LAYERS[0][0]
         rect = self.polygon.boundingRect().adjusted(-edge, -edge, pad + edge, pad + edge)
         if self.is_water:
-            rect.setRight(rect.right() + self._label_width())
+            rect = rect.united(self.label_rect())
         return rect
 
     def _label_width(self) -> float:
         font = _font(DROPLET_CODE_PX, DROPLET_LETTER_SPACING)
-        return WATER_LABEL_GAP + QFontMetricsF(font).horizontalAdvance(
-            self.residue.ref.label_lines[1]) + DROPLET_CODE_PX
+        return QFontMetricsF(font).horizontalAdvance(self.residue.ref.label_lines[1]) + DROPLET_CODE_PX
+
+    def label_rect(self, angle: float | None = None) -> QRectF:
+        """A water's number box, in item coordinates, just off the sphere along ``angle``."""
+        angle = self.label_angle if angle is None else angle
+        w, h = self._label_width(), 2 * DROPLET_CODE_PX
+        c, s = math.cos(angle), math.sin(angle)
+        # Push the box out until its edge facing the sphere clears the rim.
+        reach = self.radius + WATER_LABEL_GAP + min(
+            w / 2 / max(abs(c), 1e-6), DROPLET_CODE_PX / max(abs(s), 1e-6))
+        return QRectF(reach * c - w / 2, reach * s - h / 2, w, h)
+
+    def set_label_angle(self, angle: float) -> None:
+        self.prepareGeometryChange()
+        self.label_angle = angle
 
     def paint(self, painter: QPainter, option, widget=None) -> None:
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
@@ -1739,11 +1833,8 @@ class ResidueDroplet(QGraphicsObject):
             _paint_sphere(painter, QPointF(0, 0), self.radius, "water")
             painter.setFont(_font(DROPLET_CODE_PX, DROPLET_LETTER_SPACING))
             painter.setPen(QColor(INK.text))
-            painter.drawText(
-                QRectF(self.radius + WATER_LABEL_GAP, -DROPLET_CODE_PX,
-                       self._label_width(), 2 * DROPLET_CODE_PX),
-                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-                self.residue.ref.label_lines[1])
+            painter.drawText(self.label_rect(), Qt.AlignmentFlag.AlignCenter,
+                             self.residue.ref.label_lines[1])
             return
 
         # Light at the back of the body, saturating towards the point: a radial
@@ -1799,10 +1890,7 @@ class ResidueDroplet(QGraphicsObject):
         if self.is_water:
             painter.setPen(QColor(INK.text))     # beside the sphere, on the canvas
             painter.setFont(_font(DROPLET_CODE_PX))
-            painter.drawText(
-                QRectF(self.radius + WATER_LABEL_GAP, -DROPLET_CODE_PX,
-                       self._label_width(), 2 * DROPLET_CODE_PX),
-                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, code)
+            painter.drawText(self.label_rect(), Qt.AlignmentFlag.AlignCenter, code)
             return
         for text, bold, dy in ((name, True, -DROPLET_LINE_GAP / 2),
                                (code, False, DROPLET_LINE_GAP / 2)):
@@ -2303,6 +2391,7 @@ def build_scene(diagram: Diagram, positions: dict[str, tuple[float, float]],
     shapes = {key: item.shape_in_scene() for key, item in droplets.items()}
     vertices = _metal_vertices(diagram, pos, atom_coords, droplets)
     routes = _routes(diagram, pos, atom_coords, shapes, bonds, vertices, look, bends)
+    _place_water_labels(droplets, routes, bonds, atom_coords, runs)
     route_item = InteractionRoutes(routes, droplets) if routes else None
     if route_item is not None:
         scene.addItem(route_item)
@@ -2344,6 +2433,39 @@ def build_scene(diagram: Diagram, positions: dict[str, tuple[float, float]],
     scene.setSceneRect(scene.itemsBoundingRect().adjusted(-24, -24, 24, 24))
     return SceneBuild(scene, atom_coords, droplets, ligand_item,
                       backbone, halos, route_item, legend, ribbons)
+
+
+#: Bearings tried for a water's number, in order of preference: beside, then below/above.
+WATER_LABEL_ANGLES = tuple(math.radians(a) for a in (0, 180, 45, 135, -45, -135, 90, -90))
+
+
+def _place_water_labels(droplets: dict[str, ResidueDroplet], routes: list[_Route],
+                        bonds: list[tuple[QPointF, QPointF]], atom_coords: dict[int, QPointF],
+                        ribbons: list[_Ribbon]) -> None:
+    """Put each water's number on the side its lines, the ligand and the surface leave free."""
+    waters = [item for item in droplets.values() if item.is_water]
+    if not waters:
+        return
+    stroker = QPainterPathStroker()
+    stroker.setWidth(3.0)
+    lines = [stroker.createStroke(route.path) for route in routes]
+    # ponytail: bonds and the surface as sampled points; a 4 px sampling misses nothing a label hides.
+    points = [QPointF(a.x() + (b.x() - a.x()) * t, a.y() + (b.y() - a.y()) * t)
+              for a, b in bonds for t in np.linspace(0.0, 1.0, 12)]
+    surface = [p for ribbon in ribbons for p in ribbon.points]
+    taken = [item.shape_in_scene().boundingRect() for item in droplets.values() if not item.is_water]
+    for item in waters:
+        def cost(angle: float) -> float:
+            box = item.label_rect(angle).translated(item.pos()).adjusted(-2, -2, 2, 2)
+            atoms = box.adjusted(-7, -7, 7, 7)  # an atom's own letter reaches past its centre
+            return (10.0 * sum(line.intersects(box) for line in lines)
+                    + 10.0 * sum(box.intersects(other) for other in taken)
+                    + 6.0 * any(atoms.contains(p) for p in atom_coords.values())
+                    + 4.0 * any(box.contains(p) for p in points)
+                    + 2.0 * any(box.contains(p) for p in surface))
+        scores = [cost(angle) + 0.01 * rank for rank, angle in enumerate(WATER_LABEL_ANGLES)]
+        item.set_label_angle(WATER_LABEL_ANGLES[int(np.argmin(scores))])
+        taken.append(item.label_rect().translated(item.pos()))
 
 
 def _median_bond_length(diagram: Diagram, ligand_coords) -> float:

@@ -26,6 +26,8 @@ from __future__ import annotations
 
 import os
 
+import math
+
 import numpy as np
 from rdkit import Chem, RDConfig
 from rdkit.Chem import ChemicalFeatures
@@ -168,6 +170,18 @@ def _anion_charge_atoms(mol: Chem.Mol, match: tuple[int, ...]) -> set[int]:
     return atoms
 
 
+def _flat(mol: Chem.Mol, coords, idx: int) -> bool:
+    """An atom with three heavy neighbours lying in their plane (sp2), from 3D."""
+    nbrs = [n.GetIdx() for n in mol.GetAtomWithIdx(idx).GetNeighbors()]
+    if len(nbrs) != 3:
+        return False
+    vecs = [coords[n] - coords[idx] for n in nbrs]
+    vecs = [v / max(float(np.linalg.norm(v)), 1e-8) for v in vecs]
+    total = sum(math.degrees(math.acos(float(np.clip(vecs[i] @ vecs[j], -1, 1))))
+                for i, j in ((0, 1), (0, 2), (1, 2)))
+    return total > 350.0
+
+
 def _charged_groups(mol: Chem.Mol) -> list[Group]:
     """Cationic and anionic groups, SMARTS first and formal charge as backstop."""
     found: dict[frozenset[int], str] = {}
@@ -268,7 +282,15 @@ def perceive_ligand(geom: LigandGeometry) -> Perception:
     return Perception(
         sites=sites,
         coords=coords,
-        groups=_aromatic_groups(mol, coords) + _charged_groups(mol),
+        groups=_aromatic_groups(mol, coords) + [
+            g for g in _charged_groups(mol)
+            # Without bond orders every N reads as an aliphatic amine; the 3D
+            # shape still tells an sp3 amine from an amide or ring nitrogen.
+            if geom.bond_orders_known or g.kind != "cation"
+            or not any(_flat(mol, coords, a) or any(_flat(mol, coords, n.GetIdx())
+                                                   for n in mol.GetAtomWithIdx(a).GetNeighbors())
+                       for a in g.atoms if mol.GetAtomWithIdx(a).GetAtomicNum() == 7)
+        ],
     )
 
 
