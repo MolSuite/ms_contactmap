@@ -15,9 +15,12 @@ pip install ms_contactmap
 
 ```bash
 ms_contactmap --help
-ms_contactmap complex.pdb --ligand LIG --smiles "CCO" --json contacts.json
-ms_contactmap complex.pdb --ligand LIG --ligand-file pose.sdf --json contacts.json
+ms_contactmap complex.pdb                          # finds the ligand, opens the diagram
+ms_contactmap complex.pdb --gui diagram,3d,table   # plus PyMOL and the interaction table
+ms_contactmap complex.pdb --smiles "CCO" -o contacts.json -o contacts.png
 ```
+
+The input may be PDB or mmCIF (`.cif`). The `3d` panel needs `pip install "ms_contactmap[3d]"`.
 
 Reference structures and ligand catalogs in `data/` are development and test
 fixtures; the installed package does not depend on them.

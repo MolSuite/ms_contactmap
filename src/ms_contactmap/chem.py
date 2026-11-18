@@ -72,44 +72,66 @@ class PdbAtom:
         return (self.chain, self.resnum, self.icode)
 
 
+def structure_lines(path) -> list[str]:
+    """The text of a PDB file, or of an mmCIF one rewritten as PDB records.
+
+    mmCIF goes through Biopython's PDB writer with the author chain and residue
+    numbers, the ones a user types and PyMOL shows.
+    ponytail: PDB columns cap the structure at 99,999 atoms and one-letter chains.
+    """
+    path = Path(path)
+    if path.suffix.lower() not in (".cif", ".mmcif"):
+        return path.read_text(encoding="utf-8", errors="replace").splitlines()
+    import io
+
+    from Bio.PDB import PDBIO, MMCIFParser
+
+    writer = PDBIO()
+    writer.set_structure(MMCIFParser(QUIET=True).get_structure(path.stem, str(path))[0])
+    buffer = io.StringIO()
+    writer.save(buffer)
+    return buffer.getvalue().splitlines()
+
+
 def read_pdb_atoms(pdb_path) -> list[PdbAtom]:
     """Parse every ATOM/HETATM of the first model, keeping only major altlocs.
+
+    ``pdb_path`` may also be an mmCIF file; see :func:`structure_lines`.
 
     Hydrogens are kept here -- callers that want heavy atoms filter on
     ``element``.  Records with unparsable coordinates are skipped silently;
     they are always malformed vendor output, never something we could use.
     """
     atoms: list[PdbAtom] = []
-    with open(pdb_path, "r", encoding="utf-8", errors="replace") as handle:
-        for line in handle:
-            tag = line[:6]
-            if tag == "ENDMDL":
-                break
-            if tag not in ("ATOM  ", "HETATM"):
-                continue
-            altloc = line[16].strip()
-            if altloc not in KEPT_ALTLOCS:
-                continue
-            try:
-                atoms.append(
-                    PdbAtom(
-                        serial=int(line[6:11]),
-                        name=line[12:16].strip(),
-                        altloc=altloc,
-                        resname=line[17:20].strip(),
-                        chain=line[21].strip() or "_",
-                        resnum=int(line[22:26]),
-                        icode=line[26].strip(),
-                        x=float(line[30:38]),
-                        y=float(line[38:46]),
-                        z=float(line[46:54]),
-                        element=(line[76:78].strip() or line[12:16].strip()[:1]).upper(),
-                        hetatm=tag == "HETATM",
-                        line=line.rstrip("\n"),
-                    )
+    for line in structure_lines(pdb_path):
+        tag = line[:6]
+        if tag == "ENDMDL":
+            break
+        if tag not in ("ATOM  ", "HETATM"):
+            continue
+        altloc = line[16].strip()
+        if altloc not in KEPT_ALTLOCS:
+            continue
+        try:
+            atoms.append(
+                PdbAtom(
+                    serial=int(line[6:11]),
+                    name=line[12:16].strip(),
+                    altloc=altloc,
+                    resname=line[17:20].strip(),
+                    chain=line[21].strip() or "_",
+                    resnum=int(line[22:26]),
+                    icode=line[26].strip(),
+                    x=float(line[30:38]),
+                    y=float(line[38:46]),
+                    z=float(line[46:54]),
+                    element=(line[76:78].strip() or line[12:16].strip()[:1]).upper(),
+                    hetatm=tag == "HETATM",
+                    line=line.rstrip("\n"),
                 )
-            except ValueError:
-                continue
+            )
+        except ValueError:
+            continue
     return atoms
 
 
@@ -153,6 +175,60 @@ def _formula(symbols) -> str:
     order = [s for s in ("C", "H") if s in counts]
     order += sorted(s for s in counts if s not in ("C", "H"))
     return "".join(s if counts[s] == 1 else f"{s}{counts[s]}" for s in order)
+
+
+#: Fewer heavy atoms than this is an ion, a solvent or a fragment of one.
+MIN_LIGAND_ATOMS = 6
+#: Glycans, lipids and detergents: HETATM groups that are rarely the ligand of interest.
+NOT_LIGANDS = frozenset({
+    "NAG", "NDG", "BMA", "MAN", "GLC", "BGC", "GAL", "GLA", "FUC", "FUL", "SIA", "XYS", "XYP",
+    "CLR", "PLM", "OLA", "OLC", "STE", "MYR", "PEE", "PCW", "LDA", "BOG", "LMT", "DDM",
+    "12P", "15P", "PG4", "P33", "BU1", "UNX",
+})
+
+
+@dataclass(frozen=True)
+class LigandSite:
+    """One small-molecule HETATM residue: what ``load_ligand`` needs to pick it."""
+
+    resname: str
+    chain: str
+    resnum: int
+    heavy_atoms: int
+
+    def __str__(self) -> str:
+        return f"{self.resname} {self.chain}:{self.resnum} ({self.heavy_atoms} heavy atoms)"
+
+
+def find_ligands(atoms: list[PdbAtom], resname: str | None = None, chain: str | None = None,
+                 resnum: int | None = None) -> list[LigandSite]:
+    """Small-molecule ligand candidates in file order, optionally narrowed.
+
+    Water, metals, common additives and polymer residues are left out.
+    """
+    from .model import AA_CLASS, COMMON_ADDITIVES, METAL_NAMES, WATER_NAMES
+
+    skip = AA_CLASS.keys() | COMMON_ADDITIVES | METAL_NAMES | WATER_NAMES | NOT_LIGANDS
+    # Backbone N and C of every residue, to drop in-chain modified residues (MSE, SEP...).
+    ends = {(a.chain, a.resnum, a.name): np.array((a.x, a.y, a.z)) for a in atoms if a.name in ("N", "C")}
+
+    def linked(ch: str, num: int) -> bool:
+        pairs = (((ch, num, "N"), (ch, num - 1, "C")), ((ch, num, "C"), (ch, num + 1, "N")))
+        return any(a in ends and b in ends and np.linalg.norm(ends[a] - ends[b]) < 1.75 for a, b in pairs)
+
+    residues: dict[tuple[str, str, int, str], list[PdbAtom]] = {}
+    for atom in atoms:
+        if atom.hetatm and atom.element not in ("H", "D") and atom.resname.upper() not in skip:
+            residues.setdefault((atom.resname.upper(), *atom.res_id), []).append(atom)
+    sites = []
+    for (name, ch, num, _icode), members in residues.items():
+        if len(members) < MIN_LIGAND_ATOMS or linked(ch, num):
+            continue
+        if (resname and name != resname.strip().upper()) or (chain and ch != chain) or (
+                resnum is not None and num != int(resnum)):
+            continue
+        sites.append(LigandSite(name, ch, num, len(members)))
+    return sites
 
 
 def _pick_copy(atoms: list[PdbAtom], resname: str, chain, resnum) -> list[PdbAtom]:
