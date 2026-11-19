@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 import time
+from dataclasses import replace
 from pathlib import Path
 
 from PySide6.QtCore import (SIGNAL, QByteArray, QEvent, QObject, QPointF, QRunnable, Qt, QThreadPool, QTimer,
@@ -36,10 +37,10 @@ from PySide6.QtWidgets import (
 
 from . import export as export_mod
 from . import render
-from .layout import LayoutResult, solve_layout
+from .layout import WEIGHTS, LayoutResult, solve_layout
 from .model import Diagram
 from .style import (DEFAULT_LEGEND_POSITION, DEFAULT_LEGEND_ROWS, EXPOSURE_MODES, GLYPH_MODES,
-                    LEGEND_POSITIONS, LEGEND_ROW_OPTIONS, METAL_MODES, PALETTES, SURFACE_MODES,
+                    LEGEND_POSITIONS, LEGEND_ROW_OPTIONS, METAL_MODES, PALETTES, SURFACE_MODES, SURFACE_SIDES,
                     DiagramStyle)
 
 #: How much one wheel notch scales the view.
@@ -243,10 +244,11 @@ class _LayoutTask(QRunnable):
 class _BuildTask(QRunnable):
     """Detection + layout of a held complex (``set_complex``), off the GUI thread."""
 
-    def __init__(self, request_id: int, source: tuple) -> None:
+    def __init__(self, request_id: int, source: tuple, weights=WEIGHTS) -> None:
         super().__init__()
         self.request_id = request_id
         self.source = source
+        self.weights = weights
         self.signals = _LayoutSignals()
 
     @Slot()
@@ -256,7 +258,7 @@ class _BuildTask(QRunnable):
         receptor, ligand, name = self.source
         try:
             diagram = build_pose_diagram(receptor, ligand, name=name)
-            layout = solve_layout(diagram)
+            layout = solve_layout(diagram, weights=self.weights)
         except Exception as exc:
             self.signals.failed.emit(self.request_id, f"{type(exc).__name__}: {exc}")
             return
@@ -568,6 +570,17 @@ class InteractionDiagramWidget(QWidget):
                 group.addAction(action)
                 self._style_actions[(field, value)] = action
             self._style_menus.append(submenu)
+            if field == "surface":
+                # Who wins at an exposed atom; this one re-solves the layout.
+                submenu.addSeparator()
+                sides = QActionGroup(submenu)
+                for value in SURFACE_SIDES:
+                    action = submenu.addAction(f"By {value}")
+                    action.setCheckable(True)
+                    action.triggered.connect(
+                        lambda checked=False, v=value: self._set_style_field("surface_by", v))
+                    sides.addAction(action)
+                    self._style_actions[("surface_by", value)] = action
         hydrophobic = menu.addAction("Hydrophobic contacts")
         hydrophobic.setCheckable(True)
         hydrophobic.toggled.connect(
@@ -588,9 +601,26 @@ class InteractionDiagramWidget(QWidget):
     def set_look(self, look: DiagramStyle | None) -> None:
         if look == self._look:
             return
+        resolve = self._layout_weights()
         self._look = look
+        resolve = resolve != self._layout_weights()
         self._sync_style_actions()
         self._rebuild()
+        if resolve and self._diagram is not None and self._layout is not None:
+            # Same ligand view; only the residues move to the new rule.
+            self.set_diagram_async(
+                self._diagram,
+                projection=self._layout.projection,
+                orientation=(self._layout.rotation, self._layout.mirror),
+                variant=self._residue_variant,
+                _status_text="Recalculating",
+            )
+
+    def _layout_weights(self):
+        """Placement weights for the current look: by receptor, residues may cover a gap."""
+        if self._look is not None and self._look.surface_by == "receptor":
+            return replace(WEIGHTS, open_gap=0.0)
+        return WEIGHTS
 
     def view_settings(self) -> dict:
         """What a host persists as "how new diagrams look": the style plus the legend."""
@@ -798,7 +828,7 @@ class InteractionDiagramWidget(QWidget):
             return
         self._build_button.setEnabled(False)
         self._prompt_label.setText(f"{self._complex_message}\n\nBuilding the diagram…")
-        task = _BuildTask(self._complex_serial, self._complex)
+        task = _BuildTask(self._complex_serial, self._complex, self._layout_weights())
         task.signals.finished.connect(self._on_complex_built)
         task.signals.failed.connect(self._on_complex_failed)
         self._build_tasks[task.request_id] = task  # keeps its signals alive until it reports
@@ -828,6 +858,7 @@ class InteractionDiagramWidget(QWidget):
         Interactive callers should use :meth:`set_diagram_async`, which keeps
         painting, panning and zooming responsive while layout runs.
         """
+        layout_options.setdefault("weights", self._layout_weights())
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
             layout = solve_layout(diagram, **layout_options)
@@ -845,6 +876,7 @@ class InteractionDiagramWidget(QWidget):
         """
         self._solve_serial += 1
         options = dict(layout_options)
+        options.setdefault("weights", self._layout_weights())
         operation = str(options.pop("_status_text", "Optimizing layout"))
         request = (self._solve_serial, diagram, options, operation)
         if self._solving:

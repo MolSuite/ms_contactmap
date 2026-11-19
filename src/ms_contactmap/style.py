@@ -16,6 +16,9 @@ GLYPH_MODES = ("shapes", "circles")
 COLOR_MODES = ("nature", "residue", "blend")
 PALETTES = ("soft", "medium", "vivid")
 SURFACE_MODES = ("line", "dots", "hidden")
+#: Who wins where a residue sits at an exposed atom: "ligand" keeps the gap
+#: open and the residues beside it, "receptor" lets the residue close it.
+SURFACE_SIDES = ("ligand", "receptor")
 EXPOSURE_MODES = ("arc", "dots", "trail", "hidden")
 METAL_MODES = ("star", "polygon")
 LEGEND_POSITIONS = ("left", "right", "top", "bottom")
@@ -26,12 +29,13 @@ DEFAULT_LEGEND_ROWS = 3
 
 @dataclass(frozen=True)
 class DiagramStyle:
-    """User-selectable appearance.  Changing it never re-solves the layout."""
+    """User-selectable appearance.  Only ``surface_by`` re-solves the layout."""
 
     glyphs: str = "shapes"
     coloring: str = "nature"
     palette: str = "medium"
     surface: str = "line"
+    surface_by: str = "ligand"
     exposure: str = "arc"
     metals: str = "star"
     #: Off by default: a pocket has many hydrophobic contacts, and their lines
@@ -44,6 +48,7 @@ class DiagramStyle:
             (self.coloring, COLOR_MODES),
             (self.palette, PALETTES),
             (self.surface, SURFACE_MODES),
+            (self.surface_by, SURFACE_SIDES),
             (self.exposure, EXPOSURE_MODES),
             (self.metals, METAL_MODES),
         ):

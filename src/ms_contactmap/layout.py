@@ -78,6 +78,10 @@ class Weights:
     #: assigned an arbitrary direction.  This ranks orientations only; it does
     #: not distort the optimized residue positions or reported energy.
     horizontal_preference: float = 180_000.0
+    #: Discrete placement, per px^2 of a glyph's arc inside a solvent gap
+    #: (:func:`open_bearings`): above every soft slot term, below a glyph
+    #: overlap.  Zero lets residues sit in front of exposed atoms.
+    open_gap: float = 40.0
 
     # --- lengths, in scene pixels -----------------------------------------
     d0_far: float = 150.0       #: stand-off of a residue with no interactions

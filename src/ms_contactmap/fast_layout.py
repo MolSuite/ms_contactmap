@@ -212,12 +212,12 @@ def _place_discrete(problem, cache: dict, diagram: Diagram, glyph_radius: float,
         score += layer * (30.0 if is_context else 240.0)
         # Solvent exposure wins over the residue: a protein glyph stays out of
         # the bearings the surface leaves open and settles at a side of it.
-        if len(problem.open_angle) and not (is_water or is_metal):
+        if problem.w.open_gap and len(problem.open_angle) and not (is_water or is_metal):
             delta = np.abs(_angle_delta(candidate_angles[:, None], problem.open_angle[None, :]))
             distance = np.linalg.norm(candidates, axis=1)
             reach = problem.open_half[None, :] + np.arctan2(problem.radii[i], distance)[:, None]
             arc = np.maximum(0.0, reach - delta).max(axis=1) * distance
-            score += OPEN_GAP_COST * arc ** 2
+            score += problem.w.open_gap * arc ** 2
         # A glyph may enter a bay of the drawing but never sit on it.
         room = ligand_gap(candidates, room_limit)
         score += 600.0 * np.maximum(0.0, np.minimum(concave_clearance[i], problem.ligand_clearance[i]) - room) ** 2
@@ -274,10 +274,6 @@ def _place_discrete(problem, cache: dict, diagram: Diagram, glyph_radius: float,
 
     return p, target
 
-
-#: Per px^2 of a glyph's arc inside a solvent gap: above every soft term,
-#: below a glyph overlap, so a crowded side can still spill into the gap.
-OPEN_GAP_COST = 40.0
 
 #: Slots per residue that get the line terms, after the cheap ranking.
 SHORTLIST = 48

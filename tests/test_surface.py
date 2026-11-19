@@ -102,3 +102,22 @@ def test_residues_sit_beside_solvent_gaps():
         angle = math.atan2(y - center.y(), x - center.x())
         assert all(abs((angle - b + math.pi) % (2 * math.pi) - math.pi) > half
                    for b, half in gaps), key
+
+
+def test_receptor_mode_lets_residues_close_the_gap():
+    """By receptor, a residue drawn in front of an exposed atom closes its gap."""
+    from dataclasses import replace
+    from ms_contactmap.layout import WEIGHTS
+    from ms_contactmap.style import DiagramStyle
+    ensure_app()
+    diagram = build_diagram(DATA / "4ps5.pdb", "2TA", chain="A", resnum=201)
+    result = solve_layout(diagram, weights=replace(WEIGHTS, open_gap=0.0))
+    positions = {k: QPointF(*xy) for k, xy in result.positions.items()}
+    center = QPointF(*centroid(result.ligand_coords))
+
+    def drawn(side):
+        runs = _ribbon_runs(diagram, positions, center, result.ligand_coords,
+                            DiagramStyle(surface_by=side))
+        return sum(len(r.points) for r in runs)
+
+    assert drawn("receptor") > drawn("ligand")
